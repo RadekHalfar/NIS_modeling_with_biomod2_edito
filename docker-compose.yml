@@ -7,8 +7,6 @@ services:
       - ./output:/app/output
       # Mount occurrence data (read-only)
       - ./input:/app/input:ro
-      # Mount environmental data (read-only)
-      - ./scripts_HPC_Nov2025:/app/scripts_HPC_Nov2025:ro
     environment:
       - TZ=UTC
     # Arguments for modeling_mixedPA.R
