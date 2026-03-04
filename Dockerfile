@@ -4,6 +4,9 @@ FROM rocker/r-ver:4.3
 # Set working directory
 WORKDIR /app
 
+# Default timezone (same as previous compose setup)
+ENV TZ=UTC
+
 # Install system dependencies required for R packages
 RUN apt-get update && apt-get install -y \
     libgdal-dev \
@@ -50,4 +53,4 @@ RUN chmod +x /app/modeling_mixedPA.R
 #                <n_cores> <env_file> <outdir>
 
 ENTRYPOINT ["Rscript", "/app/modeling_mixedPA.R"]
-CMD ["--help"]
+CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output"]
