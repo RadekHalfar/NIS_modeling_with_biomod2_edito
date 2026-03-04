@@ -34,9 +34,16 @@ cat(">>> Env file:", env_file, "\n")
 cat(">>> Output dir:", outdir, "\n")
 
 # ========== Load Occurrences ==========
-occ_path <- file.path("input",
-                      paste0(myRespName, "_merged_thinned_2025-08-19.csv"))
-if (!file.exists(occ_path)) stop(paste("Occurrence file not found:", occ_path))
+occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
+occ_candidates <- c(
+  file.path(occ_filename),
+  file.path("input", occ_filename)
+)
+occ_existing <- occ_candidates[file.exists(occ_candidates)]
+if (length(occ_existing) == 0) {
+  stop(paste("Occurrence file not found:", occ_candidates[2]))
+}
+occ_path <- occ_existing[1]
 
 occ_data <- read.csv(occ_path)
 myResp   <- as.numeric(occ_data$occurrenceStatus) # 1 / 0
