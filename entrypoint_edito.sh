@@ -73,6 +73,17 @@ if [ -z "$ENV_FILE" ]; then
   ENV_FILE="/app/myExpl_shelf_DISTFIX.tif"
 fi
 
+echo "=== Input diagnostics ==="
+echo "PWD: $(pwd)"
+echo "Species expected file: ${SPECIES_NAME}_merged_thinned_2025-08-19.csv"
+echo "Listing /app (top-level):"
+ls -la /app || true
+echo "Listing /app/input (top-level):"
+ls -la /app/input || true
+echo "Searching for occurrence CSV under /app (first 100 matches):"
+find /app -maxdepth 4 -type f -name "*_merged_thinned_2025-08-19.csv" | head -n 100 || true
+echo "=== End diagnostics ==="
+
 set +e
 Rscript "$SCRIPT_PATH" \
   "$SPECIES_NAME" \
