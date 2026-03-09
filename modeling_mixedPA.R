@@ -33,6 +33,44 @@ cat(">>> Algorithms:", paste(algorithms, collapse = ", "), "\n")
 cat(">>> Env file:", env_file, "\n")
 cat(">>> Output dir:", outdir, "\n")
 
+# ========== Input Diagnostics ==========
+cat(">>> Input diagnostics start\n")
+cat(">>> Working directory:", getwd(), "\n")
+cat(">>> Expected occurrence file:", paste0(myRespName, "_merged_thinned_2025-08-19.csv"), "\n")
+
+safe_list <- function(path) {
+  if (!dir.exists(path)) {
+    cat(">>> Directory missing:", path, "\n")
+    return(invisible(NULL))
+  }
+  entries <- list.files(path, full.names = TRUE)
+  cat(">>> Listing", path, "(showing up to 30):\n")
+  if (length(entries) == 0) {
+    cat(">>>   <empty>\n")
+  } else {
+    print(head(entries, 30))
+  }
+}
+
+safe_list(".")
+safe_list("input")
+safe_list("/app")
+safe_list("/app/input")
+
+diag_roots <- c(".", "input", "/app", "/app/input")
+diag_hits <- unique(unlist(lapply(diag_roots, function(root) {
+  if (!dir.exists(root)) return(character(0))
+  list.files(root, pattern = "_merged_thinned_2025-08-19\\.csv$", recursive = TRUE, full.names = TRUE)
+})))
+
+cat(">>> Found occurrence-like CSV files (up to 100):\n")
+if (length(diag_hits) == 0) {
+  cat(">>>   <none>\n")
+} else {
+  print(head(diag_hits, 100))
+}
+cat(">>> Input diagnostics end\n")
+
 # ========== Load Occurrences ==========
 occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
 occ_candidates <- c(
