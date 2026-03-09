@@ -7,14 +7,19 @@ S3_INPUT_TARGET_DIR="${S3_INPUT_TARGET_DIR:-/app}"
 OUTDIR="${OUTDIR:-${EDITO_INFRA_OUTPUT:-/app/output}}"
 AUTO_PULL_INPUTS="${AUTO_PULL_INPUTS:-1}"
 AUTO_PUSH_OUTPUTS="${AUTO_PUSH_OUTPUTS:-0}"
+USE_DIRECT_ARGS=0
 
-# If full BIOMOD args are provided, use them directly for backward compatibility.
+# If full BIOMOD args are provided, keep them, but still run S3 sync first.
 if [ "$#" -ge 11 ]; then
-  exec Rscript "$SCRIPT_PATH" "$@"
+  USE_DIRECT_ARGS=1
 fi
 
 # Build arguments from environment variables for EDITO one-click launches.
-SPECIES_NAME="${SPECIES_NAME:?SPECIES_NAME is required when command-line args are not provided}"
+if [ "$USE_DIRECT_ARGS" = "1" ]; then
+  SPECIES_NAME="${SPECIES_NAME:-$1}"
+else
+  SPECIES_NAME="${SPECIES_NAME:?SPECIES_NAME is required when command-line args are not provided}"
+fi
 ALGORITHMS="${ALGORITHMS:-GLM,GAM,RF,MAXNET}"
 PA_DIST_MIN="${PA_DIST_MIN:-2000}"
 PA_DIST_MAX="${PA_DIST_MAX:-100000}"
@@ -74,18 +79,22 @@ if [ -z "$ENV_FILE" ]; then
 fi
 
 set +e
-Rscript "$SCRIPT_PATH" \
-  "$SPECIES_NAME" \
-  "$ALGORITHMS" \
-  "$PA_DIST_MIN" \
-  "$PA_DIST_MAX" \
-  "$CV_STRATEGY" \
-  "$CV_NB_REP" \
-  "$CV_PERC_OR_NULL" \
-  "$CV_K_OR_NULL" \
-  "$N_CORES" \
-  "$ENV_FILE" \
-  "$OUTDIR"
+if [ "$USE_DIRECT_ARGS" = "1" ]; then
+  Rscript "$SCRIPT_PATH" "$@"
+else
+  Rscript "$SCRIPT_PATH" \
+    "$SPECIES_NAME" \
+    "$ALGORITHMS" \
+    "$PA_DIST_MIN" \
+    "$PA_DIST_MAX" \
+    "$CV_STRATEGY" \
+    "$CV_NB_REP" \
+    "$CV_PERC_OR_NULL" \
+    "$CV_K_OR_NULL" \
+    "$N_CORES" \
+    "$ENV_FILE" \
+    "$OUTDIR"
+fi
 RUN_EXIT=$?
 set -e
 
