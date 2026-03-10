@@ -45,11 +45,12 @@ configure_mc() {
     return 1
   fi
 
-  if [ -n "${AWS_SESSION_TOKEN:-}" ]; then
-    mc alias set s3 "$endpoint" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --session-token "$AWS_SESSION_TOKEN" --api S3v4 >/dev/null
-  else
-    mc alias set s3 "$endpoint" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --api S3v4 >/dev/null
-  fi
+  # if [ -n "${AWS_SESSION_TOKEN:-}" ]; then
+  #   mc alias set s3 "$endpoint" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --session-token "$AWS_SESSION_TOKEN" --api S3v4 >/dev/null
+  # else
+  #   mc alias set s3 "$endpoint" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --api S3v4 >/dev/null
+  # fi
+  mc alias set s3 "$endpoint" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --api S3v4 >/dev/null
   return 0
 }
 
