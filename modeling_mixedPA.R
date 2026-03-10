@@ -5,6 +5,10 @@ library(biomod2)
 library(terra)
 library(dplyr)
 
+if (!requireNamespace("paws", quietly = TRUE)) {
+  stop("Package 'paws' is required. Install it with install.packages('paws').")
+}
+
 # ========== Parse Command Line Args ==========
 # Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max>
 #                           <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL>
@@ -71,17 +75,105 @@ if (length(diag_hits) == 0) {
 }
 cat(">>> Input diagnostics end\n")
 
+# ========== S3 Helpers (EDITO personal storage) ==========
+build_s3_client <- function() {
+  endpoint_raw <- Sys.getenv("AWS_S3_ENDPOINT", Sys.getenv("S3_ENDPOINT", ""))
+  if (endpoint_raw == "") return(NULL)
+
+  endpoint <- if (grepl("^https?://", endpoint_raw)) endpoint_raw else paste0("https://", endpoint_raw)
+  region <- Sys.getenv("AWS_DEFAULT_REGION", "waw3-1")
+  access_key <- Sys.getenv("AWS_ACCESS_KEY_ID", "")
+  secret_key <- Sys.getenv("AWS_SECRET_ACCESS_KEY", "")
+  session_token <- Sys.getenv("AWS_SESSION_TOKEN", "")
+
+  if (access_key == "" || secret_key == "") return(NULL)
+
+  creds <- list(
+    access_key_id = access_key,
+    secret_access_key = secret_key
+  )
+  if (session_token != "") creds$session_token <- session_token
+
+  paws::s3(config = list(
+    credentials = list(creds = creds),
+    endpoint = endpoint,
+    region = region
+  ))
+}
+
+resolve_bucket <- function() {
+  bucket <- Sys.getenv("S3_BUCKET", "")
+  if (bucket != "") return(bucket)
+  edito_user <- Sys.getenv("EDITO_USERNAME", "")
+  if (edito_user != "") return(paste0("oidc-", edito_user))
+  ""
+}
+
+safe_s3_key <- function(prefix, filename) {
+  if (prefix == "") return(filename)
+  paste0(gsub("/+$", "", prefix), "/", filename)
+}
+
+download_s3_object <- function(s3, bucket, key, dest_path) {
+  if (is.null(s3) || bucket == "" || key == "") return(FALSE)
+  dir.create(dirname(dest_path), recursive = TRUE, showWarnings = FALSE)
+
+  ok <- tryCatch({
+    obj <- s3$get_object(Bucket = bucket, Key = key)
+    body <- obj$Body
+
+    if (is.raw(body)) {
+      writeBin(body, dest_path)
+    } else if (is.character(body)) {
+      writeBin(charToRaw(paste(body, collapse = "")), dest_path)
+    } else {
+      stop("Unsupported response body type from S3")
+    }
+    TRUE
+  }, error = function(e) {
+    cat(">>> S3 download failed for", paste0("s3://", bucket, "/", key), "-", conditionMessage(e), "\n")
+    FALSE
+  })
+
+  if (ok) {
+    cat(">>> Downloaded", paste0("s3://", bucket, "/", key), "->", dest_path, "\n")
+  }
+  ok
+}
+
+s3_client <- build_s3_client()
+s3_bucket <- resolve_bucket()
+s3_input_prefix <- Sys.getenv("S3_INPUT_PREFIX", "input")
+local_input_dir <- Sys.getenv("LOCAL_INPUT_DIR", "input")
+
 # ========== Load Occurrences ==========
 occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
 occ_candidates <- c(
   file.path(occ_filename),
-  file.path("input", occ_filename)
+  file.path("input", occ_filename),
+  file.path(local_input_dir, occ_filename)
 )
 occ_existing <- occ_candidates[file.exists(occ_candidates)]
 if (length(occ_existing) == 0) {
-  stop(paste("Occurrence file not found:", occ_candidates[2]))
+  s3_keys <- unique(c(
+    safe_s3_key(s3_input_prefix, occ_filename),
+    occ_filename
+  ))
+  target_path <- file.path(local_input_dir, occ_filename)
+
+  for (key in s3_keys) {
+    if (download_s3_object(s3_client, s3_bucket, key, target_path)) break
+  }
+
+  occ_existing <- occ_candidates[file.exists(occ_candidates)]
+  if (file.exists(target_path)) occ_existing <- c(occ_existing, target_path)
+
+  if (length(occ_existing) == 0) {
+    stop(paste("Occurrence file not found locally or in S3. Tried:", paste(occ_candidates, collapse = ", ")))
+  }
 }
 occ_path <- occ_existing[1]
+cat(">>> Using occurrence file:", occ_path, "\n")
 
 occ_data <- read.csv(occ_path)
 myResp   <- as.numeric(occ_data$occurrenceStatus) # 1 / 0
@@ -89,6 +181,23 @@ myRespXY <- occ_data[, c("longitude", "latitude")]
 colnames(myRespXY) <- c("X_WGS84","Y_WGS84")
 
 # ========== Load Environmental Data ==========
+if (!file.exists(env_file)) {
+  env_key_override <- Sys.getenv("ENV_FILE_S3_KEY", "")
+  env_keys <- unique(Filter(nzchar, c(
+    env_key_override,
+    safe_s3_key(s3_input_prefix, basename(env_file)),
+    basename(env_file)
+  )))
+
+  for (key in env_keys) {
+    if (download_s3_object(s3_client, s3_bucket, key, env_file)) break
+  }
+}
+
+if (!file.exists(env_file)) {
+  stop(paste("Environmental raster not found locally or in S3:", env_file))
+}
+
 myExpl <- rast(env_file)
 
 

@@ -30,12 +30,8 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install MinIO client for EDITO S3 interactions
-RUN curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc \
-    && chmod +x /usr/local/bin/mc
-
 # Install R packages
-RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel'), repos='https://cloud.r-project.org/')"
+RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel', 'paws'), repos='https://cloud.r-project.org/')"
 
 # Install biomod2 from CRAN
 RUN R -e "install.packages('biomod2', repos='https://cloud.r-project.org/')"
@@ -51,7 +47,6 @@ WORKDIR /app
 
 # Make the script executable
 RUN chmod +x /app/modeling_mixedPA.R
-RUN chmod +x /app/entrypoint_edito.sh
 
 # Set default command - users can override this with docker run arguments
 # Example usage: docker run -v $(pwd)/output:/app/output biomod2-modeling \
@@ -59,5 +54,5 @@ RUN chmod +x /app/entrypoint_edito.sh
 #                <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> \
 #                <n_cores> <env_file> <outdir>
 
-ENTRYPOINT ["/app/entrypoint_edito.sh"]
+ENTRYPOINT ["Rscript", "/app/modeling_mixedPA.R"]
 CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/myExpl_shelf_DISTFIX.tif", "/app/output"]
