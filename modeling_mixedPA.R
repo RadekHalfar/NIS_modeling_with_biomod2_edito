@@ -141,6 +141,33 @@ download_s3_object <- function(s3, bucket, key, dest_path) {
   ok
 }
 
+upload_to_s3 <- function(s3, bucket, local_path, s3_key) {
+  if (is.null(s3) || bucket == "" || !file.exists(local_path)) return(FALSE)
+  ok <- tryCatch({
+    s3$put_object(
+      Bucket = bucket,
+      Key    = s3_key,
+      Body   = readBin(local_path, what = "raw", n = file.info(local_path)$size)
+    )
+    TRUE
+  }, error = function(e) {
+    cat(">>> S3 upload failed for", paste0("s3://", bucket, "/", s3_key), "-", conditionMessage(e), "\n")
+    FALSE
+  })
+  if (ok) cat(">>> Uploaded", local_path, "->", paste0("s3://", bucket, "/", s3_key), "\n")
+  ok
+}
+
+upload_dir_to_s3 <- function(s3, bucket, local_dir, s3_prefix) {
+  if (is.null(s3) || bucket == "" || !dir.exists(local_dir)) return(invisible(NULL))
+  files <- list.files(local_dir, recursive = TRUE, full.names = TRUE)
+  for (f in files) {
+    rel  <- sub(paste0("^", normalizePath(local_dir, mustWork = FALSE), "[/\\\\]"), "", normalizePath(f, mustWork = FALSE))
+    key  <- if (s3_prefix == "") rel else paste0(gsub("/+$", "", s3_prefix), "/", rel)
+    upload_to_s3(s3, bucket, f, key)
+  }
+}
+
 s3_client <- build_s3_client()
 s3_bucket <- resolve_bucket()
 s3_input_prefix <- Sys.getenv("S3_INPUT_PREFIX", "input")
@@ -443,5 +470,15 @@ write.csv(eval_df,
           row.names = FALSE)
 
 cat(">>> Done for", myRespName, "\n")
+
+# ========== Upload Outputs to S3 ==========
+s3_output_prefix <- Sys.getenv("S3_OUTPUT_PREFIX", "output")
+if (!is.null(s3_client) && s3_bucket != "") {
+  cat(">>> Uploading output files to s3://", s3_bucket, "/", s3_output_prefix, "\n", sep = "")
+  upload_dir_to_s3(s3_client, s3_bucket, outdir, s3_output_prefix)
+  cat(">>> Upload complete\n")
+} else {
+  cat(">>> Skipping S3 upload: no S3 client or bucket configured\n")
+}
 
 
