@@ -45,6 +45,10 @@ COPY . /app/
 # Set the working directory to the project root
 WORKDIR /app
 
+# Default entrypoint configuration (can be overridden with -e)
+ENV SCRIPTS_DIR=/app/scripts
+ENV SCRIPT_NAME=modelling/01_modeling_mixedPA.R
+
 # Make all R scripts and the entrypoint executable
 RUN find /app/scripts -name "*.R" -type f -exec chmod +x {} \; && \
     chmod +x /app/scripts/entrypoint.sh /app/modeling_mixedPA.R 2>/dev/null || true
@@ -62,4 +66,4 @@ RUN find /app/scripts -name "*.R" -type f -exec chmod +x {} \; && \
 #   docker run ... biomod2-modeling (no arguments)
 
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
-CMD ["modeling_mixedPA.R", "Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output", "scripts", "input"]
+#CMD ["modeling_mixedPA.R", "Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output", "scripts", "input"]
