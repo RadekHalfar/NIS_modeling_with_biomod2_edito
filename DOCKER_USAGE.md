@@ -54,6 +54,12 @@ Argument order for `modeling_mixedPA.R`:
 
 `<species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir> [scripts_dir] [input_dir]`
 
+Directory precedence:
+
+1. CLI argument
+2. Environment variable (`OUTPUT_DIR`, `SCRIPT_DIR`, `INPUT_DIR`)
+3. Default (`output`, `scripts`, `input`)
+
 ### Run a Different Script
 
 If you add `preprocessing.R` or `analysis.R` to the scripts folder:
@@ -130,10 +136,13 @@ dir output\
 
 ## Environment Variables
 
-You can pass environment variables for S3 integration:
+You can pass environment variables for S3 integration and directory names:
 
 ```powershell
 docker run --rm `
+  -e OUTPUT_DIR="output" `
+  -e SCRIPT_DIR="scripts" `
+  -e INPUT_DIR="input" `
   -e AWS_S3_ENDPOINT="your-s3-endpoint" `
   -e AWS_ACCESS_KEY_ID="your-key" `
   -e AWS_SECRET_ACCESS_KEY="your-secret" `
@@ -141,6 +150,20 @@ docker run --rm `
   -v "${PWD}\input:/app/input:ro" `
   -v "${PWD}\output:/app/output" `
   biomod2-modeling:latest
+```
+
+Example with custom directory names via env vars (without passing directory args):
+
+```powershell
+docker run --rm `
+  -e OUTPUT_DIR="my_results" `
+  -e SCRIPT_DIR="my_scripts" `
+  -e INPUT_DIR="my_input" `
+  -v "${PWD}\my_scripts:/app/my_scripts" `
+  -v "${PWD}\my_input:/app/my_input:ro" `
+  -v "${PWD}\my_results:/app/my_results" `
+  biomod2-modeling:latest `
+  modeling_mixedPA.R Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/my_input/myExpl_shelf_DISTFIX.tif
 ```
 
 ## Key Benefits
