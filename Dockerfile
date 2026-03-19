@@ -36,8 +36,8 @@ RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'm
 # Install biomod2 from CRAN
 RUN R -e "install.packages('biomod2', repos='https://cloud.r-project.org/')"
 
-# Create output directory
-RUN mkdir -p /app/output
+# Create output and scripts directories
+RUN mkdir -p /app/output /app/scripts
 
 # Copy the entire project into the container
 COPY . /app/
@@ -45,14 +45,21 @@ COPY . /app/
 # Set the working directory to the project root
 WORKDIR /app
 
-# Make the script executable
-RUN chmod +x /app/modeling_mixedPA.R
+# Make all R scripts and the entrypoint executable
+RUN find /app/scripts -name "*.R" -type f -exec chmod +x {} \; && \
+    chmod +x /app/scripts/entrypoint.sh /app/modeling_mixedPA.R 2>/dev/null || true
 
-# Set default command - users can override this with docker run arguments
-# Example usage: docker run -v $(pwd)/output:/app/output biomod2-modeling \
-#                <species> <algorithms> <PA_dist_min> <PA_dist_max> \
-#                <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> \
-#                <n_cores> <env_file> <outdir>
+# Set entrypoint to the wrapper script that routes to different R scripts
+# Scripts mounted at /app/scripts can be swapped without rebuilding
+# Example usage:
+#   docker run -v $(pwd)/scripts:/app/scripts -v $(pwd)/output:/app/output -v $(pwd)/input:/app/input biomod2-modeling \
+#                modeling_mixedPA.R Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf_DISTFIX.tif /app/output
+#
+# To run a different script:
+#   docker run ... biomod2-modeling other_script.R arg1 arg2 ...
+#
+# To see available scripts:
+#   docker run ... biomod2-modeling (no arguments)
 
-ENTRYPOINT ["Rscript", "/app/modeling_mixedPA.R"]
-CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/myExpl_shelf_DISTFIX.tif", "/app/output"]
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+CMD ["modeling_mixedPA.R", "Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output", "scripts", "input"]

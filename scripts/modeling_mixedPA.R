@@ -12,10 +12,10 @@ if (!requireNamespace("paws", quietly = TRUE)) {
 # ========== Parse Command Line Args ==========
 # Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max>
 #                           <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL>
-#                           <n_cores> <env_file> <outdir>
+#                           <n_cores> <env_file> <outdir> [scripts_dir] [input_dir]
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 11) {
-  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir>")
+  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir> [scripts_dir] [input_dir]")
 }
 
 myRespName   <- args[1]
@@ -29,6 +29,8 @@ cv_k         <- if (args[8] == "NULL" | args[8] == "") NULL else as.numeric(args
 n_cores      <- as.numeric(args[9])
 env_file     <- args[10]
 outdir       <- args[11]
+scripts_dir  <- if (length(args) >= 12 && args[12] != "") args[12] else "scripts"
+input_dir    <- if (length(args) >= 13 && args[13] != "") args[13] else "input"
 
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 
@@ -36,6 +38,8 @@ cat(">>> Species:", myRespName, "\n")
 cat(">>> Algorithms:", paste(algorithms, collapse = ", "), "\n")
 cat(">>> Env file:", env_file, "\n")
 cat(">>> Output dir:", outdir, "\n")
+cat(">>> Scripts dir:", scripts_dir, "\n")
+cat(">>> Input dir:", input_dir, "\n")
 
 # ========== Input Diagnostics ==========
 cat(">>> Input diagnostics start\n")
@@ -57,11 +61,13 @@ safe_list <- function(path) {
 }
 
 safe_list(".")
-safe_list("input")
+safe_list(input_dir)
+safe_list(scripts_dir)
 safe_list("/app")
 safe_list("/app/input")
+safe_list("/app/scripts")
 
-diag_roots <- c(".", "input", "/app", "/app/input")
+diag_roots <- unique(c(".", input_dir, scripts_dir, "/app", "/app/input", "/app/scripts"))
 diag_hits <- unique(unlist(lapply(diag_roots, function(root) {
   if (!dir.exists(root)) return(character(0))
   list.files(root, pattern = "_merged_thinned_2025-08-19\\.csv$", recursive = TRUE, full.names = TRUE)
@@ -171,13 +177,13 @@ upload_dir_to_s3 <- function(s3, bucket, local_dir, s3_prefix) {
 s3_client <- build_s3_client()
 s3_bucket <- resolve_bucket()
 s3_input_prefix <- Sys.getenv("S3_INPUT_PREFIX", "input")
-local_input_dir <- Sys.getenv("LOCAL_INPUT_DIR", "input")
+local_input_dir <- if (nzchar(input_dir)) input_dir else Sys.getenv("LOCAL_INPUT_DIR", "input")
 
 # ========== Load Occurrences ==========
 occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
 occ_candidates <- c(
   file.path(occ_filename),
-  file.path("input", occ_filename),
+  file.path(input_dir, occ_filename),
   file.path(local_input_dir, occ_filename)
 )
 occ_existing <- occ_candidates[file.exists(occ_candidates)]
