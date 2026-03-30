@@ -40,6 +40,15 @@ if [[ ! -f "$SCRIPT_PATH" ]]; then
     exit 1
 fi
 
+# List all files in the mounted scripts directory on every run.
+echo "Files in $SCRIPTS_DIR:"
+if [[ -d "$SCRIPTS_DIR" ]]; then
+    find "$SCRIPTS_DIR" -type f 2>/dev/null | sort || echo "  (no files found)"
+else
+    echo "  (directory not found)"
+fi
+echo ""
+
 # Run the R script with all remaining arguments
 echo ">>> Running: Rscript $SCRIPT_PATH $@"
 exec Rscript "$SCRIPT_PATH" "$@"
