@@ -9,7 +9,7 @@
 set -e
 
 SCRIPTS_DIR="${SCRIPTS_DIR:-/app/scripts}"
-SCRIPT_NAME="${SCRIPT_NAME:-modelling/01_modeling_mixedPA.R}"
+SCRIPT_NAME="${SCRIPT_NAME:-modeling_mixedPA.R}"
 
 # Optional first argument can override SCRIPT_NAME when it looks like an R script path.
 if [[ -n "${1:-}" ]] && [[ "$1" == *.R ]]; then
