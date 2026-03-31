@@ -12,11 +12,11 @@ if (!requireNamespace("paws", quietly = TRUE)) {
 # ========== Parse Command Line Args ==========
 # Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max>
 #                           <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL>
-#                           <n_cores> <env_file> <outdir> [scripts_dir] [input_dir]
-# Env fallbacks (when args are omitted): OUTPUT_DIR, SCRIPT_DIR, INPUT_DIR
+#                           <n_cores> <env_file> <outdir> <scripts_dir> <input_dir>
+# All args required. No fallbacks. Use mounted volumes only.
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 10) {
-  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> [outdir] [scripts_dir] [input_dir]")
+if (length(args) < 13) {
+  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir> <scripts_dir> <input_dir>")
 }
 
 myRespName   <- args[1]
@@ -29,9 +29,17 @@ cv_perc      <- if (args[7] == "NULL" | args[7] == "") NULL else as.numeric(args
 cv_k         <- if (args[8] == "NULL" | args[8] == "") NULL else as.numeric(args[8])
 n_cores      <- as.numeric(args[9])
 env_file     <- args[10]
-outdir       <- if (length(args) >= 11 && args[11] != "") args[11] else Sys.getenv("OUTPUT_DIR", "output")
-scripts_dir  <- if (length(args) >= 12 && args[12] != "") args[12] else Sys.getenv("SCRIPT_DIR", "scripts")
-input_dir    <- if (length(args) >= 13 && args[13] != "") args[13] else Sys.getenv("INPUT_DIR", "input")
+outdir       <- args[11]
+scripts_dir  <- args[12]
+input_dir    <- args[13]
+
+# Validate mounted volumes
+if (!dir.exists(scripts_dir)) {
+  stop(sprintf("Error: scripts_dir not mounted at %s", scripts_dir))
+}
+if (!dir.exists(input_dir)) {
+  stop(sprintf("Error: input_dir not mounted at %s", input_dir))
+}
 
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 

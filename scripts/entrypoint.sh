@@ -1,31 +1,39 @@
 #!/bin/bash
 
-# Wrapper script to run R scripts from a configurable scripts folder.
-# Environment variables:
-#   SCRIPTS_DIR   Folder where scripts are stored (default: /app/scripts)
-#   SCRIPT_NAME   Script to execute (default: modelling/01_modeling_mixedPA.R)
-# Usage: entrypoint.sh [script_name] [arg1 arg2 ...]
+# Wrapper script to run R scripts from mounted volume only.
+# Required: /app/scripts must be mounted as volume.
+#
+# Configuration (priority: CLI arg > env var > error):
+#   SCRIPTS_DIR   Folder where scripts are mounted (default: /app/scripts)
+#   SCRIPT_NAME   R script filename to execute (must be set via env var or CLI)
+#
+# Usage: entrypoint.sh [script_name.R] [arg1 arg2 ...]
 
 set -e
 
 SCRIPTS_DIR="${SCRIPTS_DIR:-/app/scripts}"
-SCRIPT_NAME="${SCRIPT_NAME:-modeling_mixedPA.R}"
 
-# Optional first argument can override SCRIPT_NAME when it looks like an R script path.
+# CLI first argument overrides SCRIPT_NAME env var
 if [[ -n "${1:-}" ]] && [[ "$1" == *.R ]]; then
     SCRIPT_NAME="$1"
     shift
 fi
 
-# Show help if no script provided
-if [[ -z "$SCRIPT_NAME" ]]; then
-    echo "Usage: $(basename "$0") [script_name] [arguments...]"
+# Validate mounted volume
+if [[ ! -d "$SCRIPTS_DIR" ]]; then
+    echo "Error: SCRIPTS_DIR not mounted at $SCRIPTS_DIR"
+    echo "Mount the scripts volume before running: -v /host/scripts:$SCRIPTS_DIR"
+    exit 1
+fi
+
+# Require script name — must come from env var or CLI arg
+if [[ -z "${SCRIPT_NAME:-}" ]]; then
+    echo "Error: Script name not set."
+    echo "  Set SCRIPT_NAME env var:  docker run -e SCRIPT_NAME=modeling_mixedPA.R ..."
+    echo "  Or pass as first argument: entrypoint.sh modeling_mixedPA.R ..."
     echo ""
     echo "Available scripts in $SCRIPTS_DIR:"
-    find "$SCRIPTS_DIR" -type f -name "*.R" 2>/dev/null || echo "  (no R scripts found)"
-    echo ""
-    echo "Example:"
-    echo "  entrypoint.sh modeling_mixedPA.R Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 ..."
+    find "$SCRIPTS_DIR" -type f -name "*.R" 2>/dev/null | sort || echo "  (no R scripts found)"
     exit 1
 fi
 
