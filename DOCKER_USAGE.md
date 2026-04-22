@@ -1,6 +1,6 @@
 # Docker Setup: Scripts-Mounted Workflow
 
-This project is now configured to mount the `scripts/` folder into the Docker container. This means you can edit R scripts locally without rebuilding the Docker image.
+This project is configured to mount the `scripts/` folder into the Docker container. R scripts are not copied into the image, so you can edit scripts and data locally without rebuilding.
 
 ## Directory Structure
 
@@ -8,7 +8,6 @@ This project is now configured to mount the `scripts/` folder into the Docker co
 .
 ├── Dockerfile              (build configuration)
 ├── scripts/               (mounted at /app/scripts in container)
-│   ├── entrypoint.sh      (wrapper script that routes to R scripts)
 │   ├── modeling_mixedPA.R (main R script - EDITABLE)
 │   └── ...                (add more R scripts here)
 ├── input/                 (sample data - mounted at /app/input)
@@ -25,7 +24,7 @@ docker build -t biomod2-modeling:latest .
 
 ## Run the Container
 
-The container now uses a wrapper script (`entrypoint.sh`) that routes to your R scripts. The first argument specifies which script to run.
+The container uses an internal wrapper script as ENTRYPOINT and executes R files from mounted `scripts/`. The first argument can specify which script to run.
 
 ### Basic Run with Default Script
 
@@ -90,15 +89,24 @@ docker run --rm `
 
 ```powershell
 docker run --rm `
+  -e SCRIPT_NAME="" `
   -v "${PWD}\scripts:/app/scripts" `
   biomod2-modeling:latest
 ```
+
+This intentionally clears `SCRIPT_NAME`, so the entrypoint prints available `.R` files and exits.
 
 ### Edit or Add Scripts Without Rebuilding
 
 1. **Create or modify** R scripts in the `scripts/` folder (e.g., `preprocessing.R`, `analysis.R`)
 2. **Run** the container with the new script name
 3. **No rebuild needed!** The wrapper script automatically finds and runs any `.R` file in the folder
+
+## Important Notes
+
+- The image does not include your project R scripts.
+- Mount `scripts/` on every run (`-v "${PWD}\scripts:/app/scripts"`).
+- If `scripts/` is not mounted or the selected script is missing, the container exits with a clear error.
 
 ## Usage Pattern
 
@@ -171,5 +179,5 @@ docker run --rm `
 - **No Docker rebuilds** when editing or adding R scripts
 - **Flexible workflow** — run any script in the `scripts/` folder without changing Dockerfile
 - **Fast iteration** — edit → run → check results
-- **Single entry point** — wrapper script (`entrypoint.sh`) routes to different R files
+- **Single entry point** — internal wrapper routes to different R files from mounted `scripts/`
 - **All volumes persistent** (input, output, scripts)
