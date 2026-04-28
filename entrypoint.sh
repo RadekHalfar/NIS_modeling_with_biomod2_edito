@@ -1,56 +1,76 @@
 #!/bin/bash
 set -e
 
-# Wrapper script to run R scripts from mounted volume only.
-# Required: /app/scripts must be mounted as volume.
+# Entrypoint: downloads an R script from S3, then executes it.
 #
-# Configuration (priority: CLI arg > env var > default):
-#   SCRIPTS_DIR        Folder where scripts are mounted (default: /app/scripts)
-#   SCRIPT_NAME        R script filename to execute
-#   HOST_SCRIPTS_DIR   Host-side path passed via -e for logging purposes only
+# Required environment variables:
+#   SCRIPT_NAME          R script filename to download and run (e.g. modeling_mixedPA.R)
+#   S3_BUCKET            S3 bucket name (same bucket used for input data)
+#   AWS_ACCESS_KEY_ID    AWS / S3-compatible access key
+#   AWS_SECRET_ACCESS_KEY
 #
-# Usage: entrypoint.sh [script_name.R] [arg1 arg2 ...]
+# Optional environment variables:
+#   S3_SCRIPTS_PREFIX    S3 key prefix for scripts (default: scripts)
+#   AWS_S3_ENDPOINT      Custom S3 endpoint URL (e.g. s3.waw3-1.cloudferro.com)
+#   AWS_DEFAULT_REGION   S3 region (default: waw3-1)
+#   AWS_SESSION_TOKEN    Session token if using temporary credentials
+#
+# Usage: extra CLI arguments are forwarded to Rscript unchanged.
 
-SCRIPTS_DIR="${SCRIPTS_DIR:-/app/scripts}"
+SCRIPTS_LOCAL_DIR="/app/scripts"
+S3_SCRIPTS_PREFIX="${S3_SCRIPTS_PREFIX:-scripts}"
 
-# CLI first argument overrides SCRIPT_NAME env var
-if [[ -n "${1:-}" ]] && [[ "$1" == *.R ]]; then
-    SCRIPT_NAME="$1"
-    shift
-fi
-
-# Validate mounted volume
-if [[ ! -d "$SCRIPTS_DIR" ]]; then
-    echo "Error: SCRIPTS_DIR not mounted at $SCRIPTS_DIR"
-    echo "Mount the scripts volume before running: -v /host/scripts:$SCRIPTS_DIR"
-    exit 1
-fi
-
-# Require script name — must come from env var or CLI arg
+# ---------------------------------------------------------------------------
+# Validate required env vars
+# ---------------------------------------------------------------------------
 if [[ -z "${SCRIPT_NAME:-}" ]]; then
-    echo "Error: Script name not set."
-    echo "  Set SCRIPT_NAME env var:  docker run -e SCRIPT_NAME=modeling_mixedPA.R ..."
-    echo "  Or pass as first argument: entrypoint.sh modeling_mixedPA.R ..."
-    echo ""
-    echo "Available scripts in $SCRIPTS_DIR:"
-    find "$SCRIPTS_DIR" -type f -name "*.R" 2>/dev/null | sort || echo "  (no R scripts found)"
+    echo "Error: SCRIPT_NAME is not set."
+    echo "  Set it with: docker run -e SCRIPT_NAME=modeling_mixedPA.R ..."
     exit 1
 fi
 
-# Build full path to the script
-SCRIPT_PATH="$SCRIPTS_DIR/$SCRIPT_NAME"
-
-# Check if script exists
-if [[ ! -f "$SCRIPT_PATH" ]]; then
-    echo "Error: Script not found: $SCRIPT_PATH"
-    echo "Available scripts:"
-    find "$SCRIPTS_DIR" -type f -name "*.R" 2>/dev/null || echo "  (no R scripts found)"
+if [[ -z "${S3_BUCKET:-}" ]]; then
+    echo "Error: S3_BUCKET is not set."
+    echo "  Set it with: docker run -e S3_BUCKET=my-bucket ..."
     exit 1
 fi
 
-# Print host-side scripts path if provided via -e HOST_SCRIPTS_DIR
-echo "Host scripts path: ${HOST_SCRIPTS_DIR:-<not provided — pass -e HOST_SCRIPTS_DIR=\$PWD/scripts to see it>}"
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] || [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    echo "Error: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must both be set."
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Build the S3 key and optional endpoint argument
+# ---------------------------------------------------------------------------
+# Strip trailing slash from prefix, then compose key
+S3_KEY="$(echo "${S3_SCRIPTS_PREFIX}" | sed 's|/*$||')/${SCRIPT_NAME}"
+S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
+
+ENDPOINT_ARG=""
+if [[ -n "${AWS_S3_ENDPOINT:-}" ]]; then
+    # Prepend https:// if no scheme is present (mirrors R script behaviour)
+    if [[ "${AWS_S3_ENDPOINT}" != http* ]]; then
+        ENDPOINT_ARG="--endpoint-url https://${AWS_S3_ENDPOINT}"
+    else
+        ENDPOINT_ARG="--endpoint-url ${AWS_S3_ENDPOINT}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Download the script from S3
+# ---------------------------------------------------------------------------
+SCRIPT_PATH="${SCRIPTS_LOCAL_DIR}/${SCRIPT_NAME}"
+mkdir -p "${SCRIPTS_LOCAL_DIR}"
+
+echo ">>> Downloading script from S3: ${S3_URI}"
+# shellcheck disable=SC2086
+aws s3 cp ${ENDPOINT_ARG} "${S3_URI}" "${SCRIPT_PATH}"
+echo ">>> Script downloaded to: ${SCRIPT_PATH}"
 echo ""
 
-echo ">>> Running: Rscript $SCRIPT_PATH $@"
-exec Rscript "$SCRIPT_PATH" "$@"
+# ---------------------------------------------------------------------------
+# Execute the script, forwarding all remaining CLI arguments
+# ---------------------------------------------------------------------------
+echo ">>> Running: Rscript ${SCRIPT_PATH} $*"
+exec Rscript "${SCRIPT_PATH}" "$@"

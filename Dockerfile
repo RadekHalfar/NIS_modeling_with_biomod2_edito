@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y \
     libtiff5-dev \
     libjpeg-dev \
     git \
+    awscli \
     && rm -rf /var/lib/apt/lists/*
 
 # Install R packages
@@ -37,30 +38,34 @@ RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'm
 RUN R -e "install.packages('biomod2', repos='https://cloud.r-project.org/')"
 
 # Create app directories.
-# Scripts are intentionally NOT copied into the image and must be mounted.
+# Scripts are downloaded from S3 at container startup — not mounted or baked into the image.
 RUN mkdir -p /app/output /app/input /app/scripts
 
 # Copy entrypoint outside /app/scripts so bind mounts cannot hide it.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Default entrypoint configuration (can be overridden with -e at docker run time)
-# SCRIPTS_DIR + SCRIPT_NAME together form the full path: $SCRIPTS_DIR/$SCRIPT_NAME
-ENV SCRIPTS_DIR=/app/scripts
+# Default entrypoint configuration (override with -e at docker run time).
+# S3_SCRIPTS_PREFIX + SCRIPT_NAME form the S3 key: $S3_SCRIPTS_PREFIX/$SCRIPT_NAME
+# The script is downloaded to /app/scripts/$SCRIPT_NAME before execution.
 ENV SCRIPT_NAME=modeling_mixedPA.R
+ENV S3_SCRIPTS_PREFIX=scripts
 
-# Set entrypoint to the wrapper script that routes to different R scripts.
-# R scripts are loaded from mounted volume only (not from the image).
+# Set entrypoint to the wrapper script.
+# At startup it downloads SCRIPT_NAME from S3 (using AWS_* / S3_BUCKET env vars),
+# then executes it with any extra CLI arguments forwarded.
 #
-# Run default script (SCRIPT_NAME env var):
-#   docker run -v $(pwd)/scripts:/app/scripts -v $(pwd)/output:/app/output -v $(pwd)/input:/app/input biomod2-modeling \
-#              Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf.tif /app/output /app/scripts /app/input
-#
-# Override script via env var (no rebuild needed):
-#   docker run -e SCRIPT_NAME=analysis.R -v $(pwd)/scripts:/app/scripts ... biomod2-modeling ...
-#
-# Override script via CLI arg (highest priority):
-#   docker run ... biomod2-modeling analysis.R arg1 arg2 ...
+# Minimal run (all config via -e):
+#   docker run --rm \
+#     -e AWS_ACCESS_KEY_ID=... -e AWS_SECRET_ACCESS_KEY=... \
+#     -e AWS_S3_ENDPOINT=... -e S3_BUCKET=... \
+#     -e SCRIPT_NAME=modeling_mixedPA.R \
+#     -v $(pwd)/output:/app/output \
+#     biomod2-modeling \
+#     Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf.tif /app/output
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-#CMD ["modeling_mixedPA.R", "Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output", "scripts", "input"]
+# CMD provides default R script arguments forwarded to Rscript.
+# Override at docker run time by appending args after the image name.
+# SCRIPT_NAME, S3_BUCKET and AWS_* credentials must always be supplied via -e.
+CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output"]
