@@ -9,27 +9,86 @@ if (!requireNamespace("paws", quietly = TRUE)) {
   stop("Package 'paws' is required. Install it with install.packages('paws').")
 }
 
-# ========== Parse Command Line Args ==========
-# Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max>
-#                           <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL>
-#                           <n_cores> [<env_file>] [<env_file_s3_key_or_NULL>]
-# Internal paths are fixed to /app/{output,scripts,input} inside the container.
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 9) {
-  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> [<env_file>] [<env_file_s3_key_or_NULL>]")
+# ========== Load Parameters from File ==========
+# Parameters are read from a plain-text file: one "key=value" per line.
+# The file path is supplied via the PARAMS environment variable.
+# Default location mirrors the scripts S3 prefix: /app/scripts/PARAMS
+#
+# Supported keys (see /app/scripts/PARAMS for an example):
+#   species, algorithms, pa_dist_min, pa_dist_max,
+#   cv_strategy, cv_nb_rep, cv_perc, cv_k,
+#   n_cores, env_file, env_file_s3_key
+
+load_params <- function() {
+  params_file <- Sys.getenv("PARAMS", unset = "/app/scripts/PARAMS")
+  if (!file.exists(params_file)) {
+    stop(sprintf("Parameters file not found: %s  (set PARAMS env var to override)", params_file))
+  }
+
+  lines <- readLines(params_file, warn = FALSE)
+  lines <- trimws(lines)
+  lines <- lines[nchar(lines) > 0 & !startsWith(lines, "#")]
+
+  raw <- list()
+  for (line in lines) {
+    idx <- regexpr("=", line, fixed = TRUE)
+    if (idx < 1) {
+      warning(sprintf("Skipping malformed line in params file: %s", line))
+      next
+    }
+    key        <- trimws(substr(line, 1, idx - 1))
+    value      <- trimws(substr(line, idx + 1, nchar(line)))
+    raw[[key]] <- value
+  }
+
+  get_str <- function(key, default = NULL) {
+    v <- raw[[key]]
+    if (is.null(v) || v == "" || v == "NULL") return(default)
+    v
+  }
+  get_num <- function(key, default = NULL) {
+    v <- raw[[key]]
+    if (is.null(v) || v == "" || v == "NULL") return(default)
+    as.numeric(v)
+  }
+  get_vec <- function(key) {
+    v <- raw[[key]]
+    if (is.null(v) || v == "") stop(sprintf("Required parameter '%s' is missing or empty in params file.", key))
+    trimws(strsplit(v, ",")[[1]])
+  }
+  require_str <- function(key) {
+    v <- get_str(key)
+    if (is.null(v)) stop(sprintf("Required parameter '%s' is missing in params file.", key))
+    v
+  }
+
+  list(
+    myRespName      = require_str("species"),
+    algorithms      = get_vec("algorithms"),
+    pa_dist_min     = get_num("pa_dist_min"),
+    pa_dist_max     = get_num("pa_dist_max"),
+    cv_strategy     = require_str("cv_strategy"),
+    cv_nb_rep       = get_num("cv_nb_rep"),
+    cv_perc         = get_num("cv_perc"),
+    cv_k            = get_num("cv_k"),
+    n_cores         = get_num("n_cores", default = 1),
+    env_file        = get_str("env_file", default = "/app/input/myExpl_shelf_DISTFIX.tif"),
+    env_file_s3_key = get_str("env_file_s3_key", default = "")
+  )
 }
 
-myRespName       <- args[1]
-algorithms       <- strsplit(args[2], ",")[[1]]
-pa_dist_min      <- if (args[3] == "NULL" | args[3] == "") NULL else as.numeric(args[3])
-pa_dist_max      <- if (args[4] == "NULL" | args[4] == "") NULL else as.numeric(args[4])
-cv_strategy      <- args[5]
-cv_nb_rep        <- as.numeric(args[6])
-cv_perc          <- if (args[7] == "NULL" | args[7] == "") NULL else as.numeric(args[7])
-cv_k             <- if (args[8] == "NULL" | args[8] == "") NULL else as.numeric(args[8])
-n_cores          <- as.numeric(args[9])
-env_file         <- if (length(args) >= 10 && args[10] != "NULL" && args[10] != "") args[10] else "/app/input/myExpl_shelf_DISTFIX.tif"
-env_file_s3_key  <- if (length(args) >= 11 && args[11] != "NULL" && args[11] != "") args[11] else ""
+p            <- load_params()
+myRespName   <- p$myRespName
+algorithms   <- p$algorithms
+pa_dist_min  <- p$pa_dist_min
+pa_dist_max  <- p$pa_dist_max
+cv_strategy  <- p$cv_strategy
+cv_nb_rep    <- p$cv_nb_rep
+cv_perc      <- p$cv_perc
+cv_k         <- p$cv_k
+n_cores      <- p$n_cores
+env_file     <- p$env_file
+env_file_s3_key <- p$env_file_s3_key
 outdir       <- "/app/output"
 scripts_dir  <- "/app/scripts"
 input_dir    <- "/app/input"

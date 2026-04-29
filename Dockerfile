@@ -35,7 +35,7 @@ RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'm
 RUN R -e "install.packages('biomod2', repos='https://cloud.r-project.org/')"
 
 # Create app directories.
-# Scripts are downloaded from S3 at container startup — not mounted or baked into the image.
+# Scripts are synced from S3 at container startup — not mounted or baked into the image.
 RUN mkdir -p /app/output /app/input /app/scripts
 
 # Copy entrypoint outside /app/scripts so bind mounts cannot hide it.
@@ -58,8 +58,8 @@ ENV TZ=UTC \
     S3_OUTPUT_PREFIX=output
 
 # Set entrypoint to the wrapper script.
-# At startup it downloads SCRIPT_NAME from S3 (using AWS_* / S3_BUCKET env vars),
-# then executes it with any extra CLI arguments forwarded.
+# At startup it syncs the entire S3_SCRIPTS_PREFIX folder from S3 (including PARAMS),
+# then executes SCRIPT_NAME. All run parameters are read from the PARAMS file.
 #
 # Minimal run (all config via -e):
 #   docker run --rm \
@@ -67,11 +67,7 @@ ENV TZ=UTC \
 #     -e AWS_S3_ENDPOINT=... -e S3_BUCKET=... \
 #     -e SCRIPT_NAME=modeling_mixedPA.R \
 #     -v $(pwd)/output:/app/output \
-#     biomod2-modeling \
-#     Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4
+#     biomod2-modeling
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-# CMD provides default R script arguments forwarded to Rscript.
-# Override at docker run time by appending args after the image name.
-# SCRIPT_NAME, S3_BUCKET and AWS_* credentials must always be supplied via -e.
-CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4"]
+# No CMD args needed — all parameters are supplied via the PARAMS file in S3_SCRIPTS_PREFIX.

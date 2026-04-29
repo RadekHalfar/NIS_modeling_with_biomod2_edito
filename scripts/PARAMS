@@ -1,0 +1,23 @@
+# ===========================================================================
+# Run parameters for modeling_mixedPA.R
+# Format: key=value (one per line). Lines starting with # are ignored.
+# The path to this file is set via the PARAMS environment variable.
+# Default location: /app/scripts/PARAMS
+# ===========================================================================
+
+# --- Required ---
+species=Bugulaneritina
+algorithms=GLM,GAM,RF,MAXNET
+cv_strategy=kfold
+cv_nb_rep=3
+
+# --- Optional (leave as NULL to use default / disable) ---
+pa_dist_min=2000
+pa_dist_max=100000
+cv_perc=NULL
+cv_k=5
+n_cores=4
+
+# --- Data paths (defaults shown; override if needed) ---
+env_file=/app/input/myExpl_shelf_DISTFIX.tif
+env_file_s3_key=

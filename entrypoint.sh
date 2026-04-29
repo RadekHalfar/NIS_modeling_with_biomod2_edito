@@ -1,23 +1,23 @@
 #!/bin/bash
 set -e
 
-# Entrypoint: downloads an R script from S3, then executes it.
+# Entrypoint: syncs the S3_SCRIPTS_PREFIX folder from S3 (including PARAMS),
+# then executes SCRIPT_NAME. All run parameters come from the PARAMS file.
 #
 # Required environment variables:
-#   SCRIPT_NAME           R script filename to download and run (e.g. modeling_mixedPA.R)
-#   S3_BUCKET             S3 bucket name (same bucket used for input data)
+#   SCRIPT_NAME           R script filename to run (e.g. modeling_mixedPA.R)
+#   S3_BUCKET             S3 bucket name
 #   AWS_ACCESS_KEY_ID     AWS / S3-compatible access key
 #   AWS_SECRET_ACCESS_KEY AWS / S3-compatible secret key
 #   AWS_S3_ENDPOINT       Custom S3 endpoint URL (e.g. s3.waw3-1.cloudferro.com)
 #
 # Optional environment variables (defaults set in Dockerfile):
-#   S3_SCRIPTS_PREFIX    S3 key prefix for scripts (default: scripts)
+#   S3_SCRIPTS_PREFIX    S3 key prefix for scripts folder (default: scripts)
 #   S3_INPUT_PREFIX      S3 key prefix for input data (default: input)
 #   S3_OUTPUT_PREFIX     S3 key prefix for output upload (default: output)
 #   AWS_DEFAULT_REGION   S3 region (default: waw3-1)
 #   AWS_SESSION_TOKEN    Session token if using temporary credentials
-#
-# Usage: extra CLI arguments are forwarded to Rscript unchanged.
+#   PARAMS               Path to params file (default: /app/scripts/PARAMS)
 
 # ---------------------------------------------------------------------------
 # Internal defaults (env var defaults are set in the Dockerfile)
@@ -51,15 +51,11 @@ if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] || [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; t
 fi
 
 # ---------------------------------------------------------------------------
-# Build the S3 key and optional endpoint argument
+# Build optional endpoint argument
 # ---------------------------------------------------------------------------
-# Strip trailing slash from prefix, then compose key
-S3_KEY="$(echo "${S3_SCRIPTS_PREFIX}" | sed 's|/*$||')/${SCRIPT_NAME}"
-S3_URI="s3://${S3_BUCKET}/${S3_KEY}"
-
 ENDPOINT_ARG=""
 if [[ -n "${AWS_S3_ENDPOINT:-}" ]]; then
-    # Prepend https:// if no scheme is present (mirrors R script behaviour)
+    # Prepend https:// if no scheme is present
     if [[ "${AWS_S3_ENDPOINT}" != http* ]]; then
         ENDPOINT_ARG="--endpoint-url https://${AWS_S3_ENDPOINT}"
     else
@@ -68,19 +64,31 @@ if [[ -n "${AWS_S3_ENDPOINT:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Download the script from S3
+# Sync entire scripts prefix from S3 (preserves sub-folder structure)
+# This downloads SCRIPT_NAME, PARAMS, and any other supporting files.
 # ---------------------------------------------------------------------------
 SCRIPT_PATH="${SCRIPTS_LOCAL_DIR}/${SCRIPT_NAME}"
+S3_SCRIPTS_URI="s3://${S3_BUCKET}/$(echo "${S3_SCRIPTS_PREFIX}" | sed 's|/*$||')/"
 mkdir -p "${SCRIPTS_LOCAL_DIR}"
 
-echo ">>> Downloading script from S3: ${S3_URI}"
+echo ">>> Syncing scripts folder from S3: ${S3_SCRIPTS_URI} -> ${SCRIPTS_LOCAL_DIR}/"
 # shellcheck disable=SC2086
-aws s3 cp ${ENDPOINT_ARG} "${S3_URI}" "${SCRIPT_PATH}"
-echo ">>> Script downloaded to: ${SCRIPT_PATH}"
+aws s3 sync ${ENDPOINT_ARG} "${S3_SCRIPTS_URI}" "${SCRIPTS_LOCAL_DIR}/"
+echo ">>> Sync complete"
+
+if [[ ! -f "${SCRIPT_PATH}" ]]; then
+    echo "Error: SCRIPT_NAME '${SCRIPT_NAME}' not found in ${SCRIPTS_LOCAL_DIR} after sync."
+    echo "  Check that s3://${S3_BUCKET}/${S3_SCRIPTS_PREFIX}/${SCRIPT_NAME} exists."
+    exit 1
+fi
+
+# Export PARAMS default so the R script can locate the params file
+export PARAMS="${PARAMS:-${SCRIPTS_LOCAL_DIR}/PARAMS}"
+echo ">>> PARAMS file: ${PARAMS}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Execute the script, forwarding all remaining CLI arguments
+# Execute the script (all parameters are read from PARAMS file)
 # ---------------------------------------------------------------------------
-echo ">>> Running: Rscript ${SCRIPT_PATH} $*"
-exec Rscript "${SCRIPT_PATH}" "$@"
+echo ">>> Running: Rscript ${SCRIPT_PATH}"
+exec Rscript "${SCRIPT_PATH}"
