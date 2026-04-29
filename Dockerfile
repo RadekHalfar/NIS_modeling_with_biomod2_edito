@@ -4,9 +4,6 @@ FROM rocker/r-ver:4.3
 # Set working directory
 WORKDIR /app
 
-# Default timezone (same as previous compose setup)
-ENV TZ=UTC
-
 # Install system dependencies required for R packages
 RUN apt-get update && apt-get install -y \
     ca-certificates \
@@ -45,11 +42,20 @@ RUN mkdir -p /app/output /app/input /app/scripts
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Default entrypoint configuration (override with -e at docker run time).
-# S3_SCRIPTS_PREFIX + SCRIPT_NAME form the S3 key: $S3_SCRIPTS_PREFIX/$SCRIPT_NAME
-# The script is downloaded to /app/scripts/$SCRIPT_NAME before execution.
-ENV SCRIPT_NAME=modeling_mixedPA.R
-ENV S3_SCRIPTS_PREFIX=scripts
+# ---------------------------------------------------------------------------
+# Environment variable defaults (override any with -e at docker run time).
+# Required at runtime — no default, must always be passed via -e:
+#   AWS_ACCESS_KEY_ID       S3-compatible access key
+#   AWS_SECRET_ACCESS_KEY   S3-compatible secret key
+#   AWS_S3_ENDPOINT         Custom S3 endpoint URL (e.g. s3.waw3-1.cloudferro.com)
+#   S3_BUCKET               Bucket for scripts, input data, and output upload
+# ---------------------------------------------------------------------------
+ENV TZ=UTC \
+    AWS_DEFAULT_REGION=waw3-1 \
+    SCRIPT_NAME=modeling_mixedPA.R \
+    S3_SCRIPTS_PREFIX=scripts \
+    S3_INPUT_PREFIX=input \
+    S3_OUTPUT_PREFIX=output
 
 # Set entrypoint to the wrapper script.
 # At startup it downloads SCRIPT_NAME from S3 (using AWS_* / S3_BUCKET env vars),
@@ -62,7 +68,7 @@ ENV S3_SCRIPTS_PREFIX=scripts
 #     -e SCRIPT_NAME=modeling_mixedPA.R \
 #     -v $(pwd)/output:/app/output \
 #     biomod2-modeling \
-#     Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf.tif /app/output
+#     Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf.tif /app/output /app/scripts /app/input
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # CMD provides default R script arguments forwarded to Rscript.

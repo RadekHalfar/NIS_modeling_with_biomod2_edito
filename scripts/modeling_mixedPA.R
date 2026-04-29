@@ -92,7 +92,7 @@ cat(">>> Input diagnostics end\n")
 
 # ========== S3 Helpers (EDITO personal storage) ==========
 build_s3_client <- function() {
-  endpoint_raw <- Sys.getenv("AWS_S3_ENDPOINT", Sys.getenv("S3_ENDPOINT", ""))
+  endpoint_raw <- Sys.getenv("AWS_S3_ENDPOINT", "")
   if (endpoint_raw == "") return(NULL)
 
   endpoint <- if (grepl("^https?://", endpoint_raw)) endpoint_raw else paste0("https://", endpoint_raw)
@@ -117,11 +117,7 @@ build_s3_client <- function() {
 }
 
 resolve_bucket <- function() {
-  bucket <- Sys.getenv("S3_BUCKET", "")
-  if (bucket != "") return(bucket)
-  edito_user <- Sys.getenv("EDITO_USERNAME", "")
-  if (edito_user != "") return(paste0("oidc-", edito_user))
-  ""
+  Sys.getenv("S3_BUCKET", "")
 }
 
 safe_s3_key <- function(prefix, filename) {
@@ -186,7 +182,7 @@ upload_dir_to_s3 <- function(s3, bucket, local_dir, s3_prefix) {
 s3_client <- build_s3_client()
 s3_bucket <- resolve_bucket()
 s3_input_prefix <- Sys.getenv("S3_INPUT_PREFIX", "input")
-local_input_dir <- if (nzchar(input_dir)) input_dir else Sys.getenv("LOCAL_INPUT_DIR", "input")
+local_input_dir <- input_dir
 
 # ========== Load Occurrences ==========
 occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")

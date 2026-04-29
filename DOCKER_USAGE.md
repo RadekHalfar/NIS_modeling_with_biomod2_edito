@@ -27,21 +27,21 @@ docker build -t biomod2-modeling:latest .
 
 | Variable | Description |
 |---|---|
-| `SCRIPT_NAME` | R script filename to download and run (e.g. `modeling_mixedPA.R`) |
-| `S3_BUCKET` | S3 bucket name (same bucket used for input data) |
 | `AWS_ACCESS_KEY_ID` | S3-compatible access key |
 | `AWS_SECRET_ACCESS_KEY` | S3-compatible secret key |
+| `AWS_S3_ENDPOINT` | Custom S3 endpoint (e.g. `s3.waw3-1.cloudferro.com`) |
+| `S3_BUCKET` | S3 bucket name (same bucket used for input data and output) |
+| `SCRIPT_NAME` | R script filename to download and run (default: `modeling_mixedPA.R`) |
 
 ## Optional Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `S3_SCRIPTS_PREFIX` | `scripts` | S3 key prefix where R scripts are stored |
-| `AWS_S3_ENDPOINT` | *(none)* | Custom S3 endpoint (e.g. `s3.waw3-1.cloudferro.com`) |
-| `AWS_DEFAULT_REGION` | `waw3-1` | S3 region |
-| `AWS_SESSION_TOKEN` | *(none)* | Session token for temporary credentials |
 | `S3_INPUT_PREFIX` | `input` | S3 key prefix for input data (read by the R script) |
 | `S3_OUTPUT_PREFIX` | `output` | S3 key prefix for output upload (read by the R script) |
+| `AWS_DEFAULT_REGION` | `waw3-1` | S3 region |
+| `AWS_SESSION_TOKEN` | *(none)* | Session token for temporary credentials |
 
 The entrypoint downloads:
 ```
@@ -73,7 +73,7 @@ docker run --rm `
   -e SCRIPT_NAME="modeling_mixedPA.R" `
   -v "${PWD}\output:/app/output" `
   biomod2-modeling:latest `
-  Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf_DISTFIX.tif /app/output
+  Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf_DISTFIX.tif /app/output /app/scripts /app/input
 ```
 
 Input data is fetched from S3 by the R script itself (using the same AWS credentials).
@@ -113,7 +113,7 @@ docker run --rm `
 ## Argument Order for `modeling_mixedPA.R`
 
 ```
-<species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir>
+<species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir> <scripts_dir> <input_dir>
 ```
 
 ## Key Benefits
