@@ -73,7 +73,7 @@ docker run --rm `
   -e SCRIPT_NAME="modeling_mixedPA.R" `
   -v "${PWD}\output:/app/output" `
   biomod2-modeling:latest `
-  Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf_DISTFIX.tif /app/output /app/scripts /app/input
+  Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4
 ```
 
 Input data is fetched from S3 by the R script itself (using the same AWS credentials).
@@ -113,8 +113,13 @@ docker run --rm `
 ## Argument Order for `modeling_mixedPA.R`
 
 ```
-<species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir> <scripts_dir> <input_dir>
+<species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> [<env_file>] [<env_file_s3_key_or_NULL>]
 ```
+
+- `env_file` is optional; defaults to `/app/input/myExpl_shelf_DISTFIX.tif`.
+- `env_file_s3_key` is optional. Pass it only when the S3 key of the environmental raster differs from `S3_INPUT_PREFIX/basename(env_file)`.
+- Internal paths (`/app/output`, `/app/scripts`, `/app/input`) are hardcoded in the script.
+- Internal paths (`/app/output`, `/app/scripts`, `/app/input`) are hardcoded in the script.
 
 ## Key Benefits
 

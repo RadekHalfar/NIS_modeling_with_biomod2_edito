@@ -12,26 +12,27 @@ if (!requireNamespace("paws", quietly = TRUE)) {
 # ========== Parse Command Line Args ==========
 # Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max>
 #                           <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL>
-#                           <n_cores> <env_file> <outdir> <scripts_dir> <input_dir>
-# All args required. No fallbacks. Use mounted volumes only.
+#                           <n_cores> [<env_file>] [<env_file_s3_key_or_NULL>]
+# Internal paths are fixed to /app/{output,scripts,input} inside the container.
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 13) {
-  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> <env_file> <outdir> <scripts_dir> <input_dir>")
+if (length(args) < 9) {
+  stop("Usage: modeling_mixedPA.R <species> <algorithms> <PA_dist_min> <PA_dist_max> <CV_strategy> <CV_nb_rep> <CV_perc_or_NULL> <CV_k_or_NULL> <n_cores> [<env_file>] [<env_file_s3_key_or_NULL>]")
 }
 
-myRespName   <- args[1]
-algorithms   <- strsplit(args[2], ",")[[1]]
-pa_dist_min  <- if (args[3] == "NULL" | args[3] == "") NULL else as.numeric(args[3])
-pa_dist_max  <- if (args[4] == "NULL" | args[4] == "") NULL else as.numeric(args[4])
-cv_strategy  <- args[5]
-cv_nb_rep    <- as.numeric(args[6])
-cv_perc      <- if (args[7] == "NULL" | args[7] == "") NULL else as.numeric(args[7])
-cv_k         <- if (args[8] == "NULL" | args[8] == "") NULL else as.numeric(args[8])
-n_cores      <- as.numeric(args[9])
-env_file     <- args[10]
-outdir       <- args[11]
-scripts_dir  <- args[12]
-input_dir    <- args[13]
+myRespName       <- args[1]
+algorithms       <- strsplit(args[2], ",")[[1]]
+pa_dist_min      <- if (args[3] == "NULL" | args[3] == "") NULL else as.numeric(args[3])
+pa_dist_max      <- if (args[4] == "NULL" | args[4] == "") NULL else as.numeric(args[4])
+cv_strategy      <- args[5]
+cv_nb_rep        <- as.numeric(args[6])
+cv_perc          <- if (args[7] == "NULL" | args[7] == "") NULL else as.numeric(args[7])
+cv_k             <- if (args[8] == "NULL" | args[8] == "") NULL else as.numeric(args[8])
+n_cores          <- as.numeric(args[9])
+env_file         <- if (length(args) >= 10 && args[10] != "NULL" && args[10] != "") args[10] else "/app/input/myExpl_shelf_DISTFIX.tif"
+env_file_s3_key  <- if (length(args) >= 11 && args[11] != "NULL" && args[11] != "") args[11] else ""
+outdir       <- "/app/output"
+scripts_dir  <- "/app/scripts"
+input_dir    <- "/app/input"
 
 # Validate mounted volumes
 if (!dir.exists(scripts_dir)) {
@@ -220,9 +221,8 @@ colnames(myRespXY) <- c("X_WGS84","Y_WGS84")
 
 # ========== Load Environmental Data ==========
 if (!file.exists(env_file)) {
-  env_key_override <- Sys.getenv("ENV_FILE_S3_KEY", "")
   env_keys <- unique(Filter(nzchar, c(
-    env_key_override,
+    env_file_s3_key,
     safe_s3_key(s3_input_prefix, basename(env_file)),
     basename(env_file)
   )))

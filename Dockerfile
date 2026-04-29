@@ -68,10 +68,10 @@ ENV TZ=UTC \
 #     -e SCRIPT_NAME=modeling_mixedPA.R \
 #     -v $(pwd)/output:/app/output \
 #     biomod2-modeling \
-#     Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4 /app/input/myExpl_shelf.tif /app/output /app/scripts /app/input
+#     Bugulaneritina GLM,GAM,RF,MAXNET 2000 100000 kfold 3 NULL 5 4
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # CMD provides default R script arguments forwarded to Rscript.
 # Override at docker run time by appending args after the image name.
 # SCRIPT_NAME, S3_BUCKET and AWS_* credentials must always be supplied via -e.
-CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4", "/app/input/myExpl_shelf_DISTFIX.tif", "/app/output", "/app/scripts", "/app/input"]
+CMD ["Bugulaneritina", "GLM,GAM,RF,MAXNET", "2000", "100000", "kfold", "3", "NULL", "5", "4"]
