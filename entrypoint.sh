@@ -17,7 +17,7 @@ set -e
 #   S3_OUTPUT_PREFIX     S3 key prefix for output upload (default: output)
 #   AWS_DEFAULT_REGION   S3 region (default: waw3-1)
 #   AWS_SESSION_TOKEN    Session token if using temporary credentials
-#   PARAMS               Path to params file (default: /app/scripts/PARAMS)
+#   PARAMS               Params filename inside the scripts folder (default: parameters.txt)
 
 # ---------------------------------------------------------------------------
 # Internal defaults (env var defaults are set in the Dockerfile)
@@ -82,8 +82,9 @@ if [[ ! -f "${SCRIPT_PATH}" ]]; then
     exit 1
 fi
 
-# Export PARAMS default so the R script can locate the params file
-export PARAMS="${PARAMS:-${SCRIPTS_LOCAL_DIR}/PARAMS}"
+# Resolve PARAMS (filename only) to a full container path and export it
+PARAMS_FILENAME="${PARAMS:-parameters.txt}"
+export PARAMS="${SCRIPTS_LOCAL_DIR}/${PARAMS_FILENAME}"
 echo ">>> PARAMS file: ${PARAMS}"
 echo ""
 
