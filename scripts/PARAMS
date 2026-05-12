@@ -1,0 +1,61 @@
+# ===========================================================================
+# Run parameters for all modelling scripts (01–04).
+# Format: key=value (one per line). Lines starting with # are ignored.
+# The path to this file is set via the PARAMS environment variable.
+# Default location: /app/scripts/PARAMS
+# Each container run uses SCRIPT_NAME to select which script to execute;
+# only the keys that script reads are used — unused keys are ignored.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 01_modeling_mixedPA.R — species distribution modelling
+# ---------------------------------------------------------------------------
+species=Bugulaneritina
+algorithms=GLM,GAM,RF,MAXNET
+cv_strategy=kfold
+cv_nb_rep=3
+modeling_date=2025-08-19
+
+# Optional PA distance and cross-validation parameters
+pa_dist_min=2000
+pa_dist_max=100000
+cv_perc=NULL
+cv_k=5
+
+# Current environmental raster used for model fitting (with distance fix)
+env_file=/app/input/myExpl_shelf_DISTFIX.tif
+env_file_s3_key=myExpl_shelf_DISTFIX.tif
+
+# ---------------------------------------------------------------------------
+# 02_ensemble.R — ensemble modelling
+# Requires: species, modeling_id, n_cores (set all three above/below)
+# The modeling_id is printed by script 01 and has the form:
+#   <modeling_date>_mix50_<cv_strategy>_<env_file_basename_no_ext>
+# Example: 2025-08-19_mix50_kfold_myExpl_shelf_DISTFIX
+# ---------------------------------------------------------------------------
+modeling_id=2025-08-19_mix50_kfold_myExpl_shelf_DISTFIX
+
+# ---------------------------------------------------------------------------
+# 03_projection_EM.R — current ensemble projection
+# 04_projection_EM_future.R — future ensemble projections
+# Requires: species, modeling_id, n_cores, proj_env_file* (scripts 03/04)
+#           and future env files (script 04 only)
+# NOTE: scripts 03/04 use myExpl_shelf.tif (no DISTFIX), not env_file above.
+# ---------------------------------------------------------------------------
+
+# Current env raster for projections (scripts 03 and 04)
+proj_env_file=/app/input/myExpl_shelf.tif
+proj_env_file_s3_key=myExpl_shelf.tif
+
+# Future env rasters (script 04 only)
+ssp126_env_file=/app/input/ssp126_shelf_2100.tif
+ssp126_env_file_s3_key=ssp126_shelf_2100.tif
+ssp245_env_file=/app/input/ssp245_shelf_2100.tif
+ssp245_env_file_s3_key=ssp245_shelf_2100.tif
+ssp585_env_file=/app/input/ssp585_shelf_2100.tif
+ssp585_env_file_s3_key=ssp585_shelf_2100.tif
+
+# ---------------------------------------------------------------------------
+# Shared — used by all scripts
+# ---------------------------------------------------------------------------
+n_cores=4
