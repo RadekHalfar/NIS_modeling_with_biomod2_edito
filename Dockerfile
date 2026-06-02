@@ -34,15 +34,17 @@ RUN mkdir -p /app/output /app/input /app/scripts
 
 # Bake scripts into the image so they do not need to be uploaded to S3.
 COPY scripts/ /app/scripts/
+# Parameters must come from S3 input at startup, not from baked scripts.
+RUN rm -f /app/scripts/parameters.txt /app/scripts/PARAMS
 
-COPY entrypoint.baked-scripts.sh /usr/local/bin/entrypoint-baked-scripts.sh
+COPY entrypoint.sh /usr/local/bin/entrypoint-baked-scripts.sh
 RUN chmod +x /usr/local/bin/entrypoint-baked-scripts.sh
 
 # SCRIPT_NAME can be either a path relative to /app/scripts or an absolute path.
 ENV TZ=UTC \
     AWS_DEFAULT_REGION=waw3-1 \
     SCRIPT_NAME=modelling/01_modeling_mixedPA.R \
-    PARAMS=parameters.txt \
+    PARAMS=/app/input/parameters.txt \
     S3_INPUT_PREFIX=input \
     S3_OUTPUT_PREFIX=output
 

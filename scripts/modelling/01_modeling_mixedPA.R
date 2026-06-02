@@ -12,7 +12,7 @@ if (!requireNamespace("paws", quietly = TRUE)) {
 
 # ========== Parameter Loader ==========
 load_params <- function() {
-  params_file <- Sys.getenv("PARAMS", unset = "/app/scripts/parameters.txt")
+  params_file <- Sys.getenv("PARAMS", unset = "/app/input/parameters.txt")
   if (!file.exists(params_file)) {
     stop(sprintf(
       "Parameters file not found: %s  (set PARAMS env var to override)",

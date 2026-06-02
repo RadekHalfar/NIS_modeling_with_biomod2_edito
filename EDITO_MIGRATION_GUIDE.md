@@ -72,8 +72,7 @@ Maintain the following structure on your local machine.  The same layout is mirr
 ├── Dockerfile
 ├── entrypoint.sh
 ├── scripts/
-│   ├── my_analysis.R        ← your main R script(s)
-│   └── PARAMS               ← parameters file (uploaded to S3, not baked in)
+│   └── my_analysis.R        ← your main R script(s)
 ├── input/                   ← local copies of input data (not baked in)
 └── output/                  ← results land here (can be bind-mounted locally)
 ```
@@ -85,7 +84,7 @@ Inside the running container paths are fixed:
 | R scripts | `/app/scripts/` |
 | Input data | `/app/input/` |
 | Output data | `/app/output/` |
-| Parameters file | `/app/scripts/PARAMS` (default) |
+| Parameters file | `/app/input/parameters.txt` (default) |
 
 Use exactly these paths in your R code.  Do not read from or write to any other location.
 
@@ -93,11 +92,11 @@ Use exactly these paths in your R code.  Do not read from or write to any other 
 
 ## 4. Creating the Parameters File
 
-Create a plain-text file named **`PARAMS`** (no extension) inside the `scripts/` directory.  One `key=value` pair per line.  Lines starting with `#` are comments and are ignored.  Whitespace around `=` is stripped.
+Create a plain-text file named **`parameters.txt`** inside the `input/` directory.  One `key=value` pair per line.  Lines starting with `#` are comments and are ignored.  Whitespace around `=` is stripped.
 
 ```
 # ===========================================================================
-# PARAMS — runtime parameters for my_analysis.R
+# parameters.txt — runtime parameters for my_analysis.R
 # ===========================================================================
 
 # --- Required ---
@@ -229,8 +228,8 @@ Create a file named `entrypoint.sh` in the project root.  This file must use Uni
 set -e
 
 # ---------------------------------------------------------------------------
-# Entrypoint: syncs the S3_SCRIPTS_PREFIX folder from S3 (including PARAMS),
-# then executes SCRIPT_NAME.  All run parameters come from the PARAMS file.
+# Entrypoint: downloads parameters.txt from S3 input prefix to /app/input,
+# then executes SCRIPT_NAME.  All run parameters come from that local file.
 #
 # Required environment variables:
 #   SCRIPT_NAME           R script filename to run (e.g. my_analysis.R)
@@ -240,14 +239,14 @@ set -e
 #   AWS_S3_ENDPOINT       Custom S3 endpoint URL (e.g. s3.waw3-1.cloudferro.com)
 #
 # Optional environment variables (defaults set in Dockerfile):
-#   S3_SCRIPTS_PREFIX     S3 key prefix for scripts folder (default: scripts)
+#   S3_INPUT_PREFIX       S3 key prefix for input folder (default: input)
 #   AWS_DEFAULT_REGION    S3 region (default: waw3-1)
 #   AWS_SESSION_TOKEN     Session token if using temporary credentials
-#   PARAMS                Path to params file (default: /app/scripts/PARAMS)
+#   PARAMS                Path to params file (default: /app/input/parameters.txt)
 # ---------------------------------------------------------------------------
 
 SCRIPTS_LOCAL_DIR="/app/scripts"
-S3_SCRIPTS_PREFIX="${S3_SCRIPTS_PREFIX:-scripts}"
+INPUT_LOCAL_DIR="/app/input"
 
 # ---------------------------------------------------------------------------
 # Validate required env vars
@@ -285,25 +284,45 @@ if [[ -n "${AWS_S3_ENDPOINT:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Sync the entire scripts prefix from S3.
-# This downloads SCRIPT_NAME, PARAMS, and any helper files.
+# Download parameters from S3 input prefix.
 # ---------------------------------------------------------------------------
 SCRIPT_PATH="${SCRIPTS_LOCAL_DIR}/${SCRIPT_NAME}"
-S3_SCRIPTS_URI="s3://${S3_BUCKET}/$(echo "${S3_SCRIPTS_PREFIX}" | sed 's|/*$||')/"
-mkdir -p "${SCRIPTS_LOCAL_DIR}"
+PARAMS_VALUE="${PARAMS:-/app/input/parameters.txt}"
+if [[ "${PARAMS_VALUE}" = /* ]]; then
+  export PARAMS="${PARAMS_VALUE}"
+else
+  export PARAMS="${INPUT_LOCAL_DIR}/${PARAMS_VALUE}"
+fi
 
-echo ">>> Syncing scripts folder from S3: ${S3_SCRIPTS_URI} -> ${SCRIPTS_LOCAL_DIR}/"
-# shellcheck disable=SC2086
-aws s3 sync ${ENDPOINT_ARG} "${S3_SCRIPTS_URI}" "${SCRIPTS_LOCAL_DIR}/"
-echo ">>> Sync complete"
+ENDPOINT_URL="${AWS_S3_ENDPOINT}"
+if [[ "${ENDPOINT_URL}" != http* ]]; then
+  ENDPOINT_URL="https://${ENDPOINT_URL}"
+fi
+
+S3_INPUT_PREFIX_TRIMMED="$(echo "${S3_INPUT_PREFIX:-input}" | sed 's|/*$||')"
+if [[ -n "${S3_INPUT_PREFIX_TRIMMED}" ]]; then
+  PARAMS_S3_KEY="${S3_INPUT_PREFIX_TRIMMED}/parameters.txt"
+else
+  PARAMS_S3_KEY="parameters.txt"
+fi
+mkdir -p "$(dirname "${PARAMS}")" "${INPUT_LOCAL_DIR}"
+
+echo ">>> Downloading parameters from S3: s3://${S3_BUCKET}/${PARAMS_S3_KEY} -> ${PARAMS}"
+aws s3 cp --endpoint-url "${ENDPOINT_URL}" \
+  "s3://${S3_BUCKET}/${PARAMS_S3_KEY}" \
+  "${PARAMS}"
 
 if [[ ! -f "${SCRIPT_PATH}" ]]; then
-    echo "Error: SCRIPT_NAME '${SCRIPT_NAME}' not found in ${SCRIPTS_LOCAL_DIR} after sync."
-    echo "  Check that s3://${S3_BUCKET}/${S3_SCRIPTS_PREFIX}/${SCRIPT_NAME} exists."
+  echo "Error: SCRIPT_NAME '${SCRIPT_NAME}' not found in ${SCRIPTS_LOCAL_DIR}."
     exit 1
 fi
 
-export PARAMS="${PARAMS:-${SCRIPTS_LOCAL_DIR}/PARAMS}"
+if [[ ! -f "${PARAMS}" ]]; then
+  echo "Error: PARAMS file not found: ${PARAMS}"
+  echo "  Expected S3 source: s3://${S3_BUCKET}/${PARAMS_S3_KEY}"
+  exit 1
+fi
+
 echo ">>> PARAMS file: ${PARAMS}"
 
 # ---------------------------------------------------------------------------
@@ -316,7 +335,7 @@ exec Rscript "${SCRIPT_PATH}"
 ### Entrypoint notes
 
 - `set -e` causes the script to abort immediately if any command fails.
-- The `aws s3 sync` command downloads every file under `S3_SCRIPTS_PREFIX` into `/app/scripts/`, including `PARAMS` and any helper `.R` files.
+- The entrypoint uses `aws s3 cp` to download exactly one file: `s3://<bucket>/<S3_INPUT_PREFIX>/parameters.txt`.
 - `exec Rscript` replaces the shell process with R, so the container's PID 1 is the R process.  This ensures clean signal handling.
 - Do not add R command-line arguments after `Rscript "${SCRIPT_PATH}"`.  All parameters come from `PARAMS`.
 - If your project has no S3 credentials configured, the entrypoint will fail at validation.  There is no purely local execution mode for the containerised version.
@@ -354,7 +373,7 @@ Replace all argument parsing and hard-coded values with the `load_params()` func
 
 ```r
 load_params <- function() {
-  params_file <- Sys.getenv("PARAMS", unset = "/app/scripts/PARAMS")
+  params_file <- Sys.getenv("PARAMS", unset = "/app/input/parameters.txt")
   if (!file.exists(params_file)) {
     stop(sprintf(
       "Parameters file not found: %s  (set PARAMS env var to override)",
@@ -669,7 +688,7 @@ On EDITO, all file management is done through the **Personal Storage** browser i
 | Local file | Destination prefix in your bucket | Required |
 |---|---|---|
 | `scripts/my_analysis.R` | `scripts/` | Yes |
-| `scripts/PARAMS` | `scripts/` | Yes |
+| `input/parameters.txt` | `input/` | Yes |
 | Any helper `.R` files sourced by the main script | `scripts/` | If used |
 | `input/myRaster.tif` (and other input data) | `input/` | Yes |
 
@@ -677,9 +696,10 @@ On EDITO, all file management is done through the **Personal Storage** browser i
 
 1. Log in to the EDITO platform and open **Personal Storage** (the S3 file browser).
 2. Navigate to your bucket, or create a new one if it does not exist.
-3. Create the `scripts/` prefix (folder) and upload all files from your local `scripts/` directory — this must include both the R script(s) and the `PARAMS` file.
+3. Create the `scripts/` prefix (folder) and upload script files only.
 4. Create the `input/` prefix and upload all required input data files.
-5. Verify that all expected files are visible in the UI before submitting a job.
+5. Upload `input/parameters.txt` to the same `input/` prefix.
+6. Verify that all expected files are visible in the UI before submitting a job.
 
 The `output/` prefix does not need to be created in advance; the R script creates it automatically when it writes results.
 
@@ -703,7 +723,7 @@ The project must be in a remote Git repository (public or private) with the foll
 - `entrypoint.sh`
 - `scripts/my_analysis.R` (and any helper `.R` files)
 
-The `PARAMS` file and input data are **not** committed to Git; they are uploaded to S3 separately (see [Section 8](#8-uploading-files-to-s3-before-running)).
+The `parameters.txt` file and input data are **not** committed to Git; they are uploaded to S3 separately (see [Section 8](#8-uploading-files-to-s3-before-running)).
 
 ### Step 2 — Open `add-your-process`
 
@@ -756,10 +776,10 @@ Add at minimum the following variables (see [Section 10](#10-environment-variabl
 | `AWS_DEFAULT_REGION` | `waw3-1` | S3 region |
 | `S3_BUCKET` | *(no default — user must supply)* | S3 bucket name |
 | `SCRIPT_NAME` | `my_analysis.R` | R script to run |
-| `S3_SCRIPTS_PREFIX` | `scripts` | S3 prefix for scripts |
+| `S3_SCRIPTS_PREFIX` | `scripts` | S3 prefix for scripts (used by your own S3 logic if needed) |
 | `S3_INPUT_PREFIX` | `input` | S3 prefix for input data |
 | `S3_OUTPUT_PREFIX` | `output` | S3 prefix for output upload |
-| `PARAMS` | `/app/scripts/PARAMS` | Path to the parameters file inside the container |
+| `PARAMS` | `/app/input/parameters.txt` | Path to the parameters file inside the container |
 
 When a user launches the process, they can override any of these values in the launch form.  To run a different script or use a different parameter file, the user changes `SCRIPT_NAME` or `PARAMS` at launch time — no rebuild is needed.
 
@@ -804,7 +824,7 @@ Your process will appear in the [Process Playground catalogue](https://datalab.d
 | Variable | Description |
 |---|---|
 | `AWS_SESSION_TOKEN` | Session token for temporary credentials |
-| `PARAMS` | Full container path to the parameters file (default: `/app/scripts/PARAMS`) |
+| `PARAMS` | Full container path to the parameters file (default: `/app/input/parameters.txt`) |
 
 ---
 
@@ -827,13 +847,13 @@ Use this checklist to verify that all migration steps have been applied correctl
 - [ ] File uses Unix line endings (`LF`)
 - [ ] Validates `SCRIPT_NAME`, `S3_BUCKET`, `AWS_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 - [ ] Prepends `https://` to `AWS_S3_ENDPOINT` if no scheme is present
-- [ ] Uses `aws s3 sync` (not `aws s3 cp`) to download the entire scripts prefix
-- [ ] Verifies the target script exists after sync
-- [ ] Exports `PARAMS` with default `/app/scripts/PARAMS`
+- [ ] Uses `aws s3 cp` to download `s3://<S3_BUCKET>/<S3_INPUT_PREFIX>/parameters.txt`
+- [ ] Verifies the target script exists in `/app/scripts`
+- [ ] Exports `PARAMS` with default `/app/input/parameters.txt`
 - [ ] Executes the script with `exec Rscript "${SCRIPT_PATH}"` (no CLI arguments)
 
 ### PARAMS file
-- [ ] Located at `scripts/PARAMS` (no extension)
+- [ ] Located at `input/parameters.txt`
 - [ ] Uses Unix line endings (`LF`)
 - [ ] Contains one `key=value` entry for every parameter the R script reads
 - [ ] All file paths use container-internal paths (`/app/input/...`, `/app/output/...`)
@@ -841,7 +861,7 @@ Use this checklist to verify that all migration steps have been applied correctl
 
 ### R script — structure
 - [ ] `paws` requireNamespace check is present at the top
-- [ ] `load_params()` function reads from the file at `Sys.getenv("PARAMS", "/app/scripts/PARAMS")`
+- [ ] `load_params()` function reads from the file at `Sys.getenv("PARAMS", "/app/input/parameters.txt")`
 - [ ] All command-line argument parsing (`commandArgs`) has been removed
 - [ ] All hard-coded local file paths have been replaced with `/app/input/...`, `/app/output/...`, or values read from `PARAMS`
 - [ ] `outdir`, `scripts_dir`, `input_dir` are declared as constants after `load_params()`
@@ -870,13 +890,14 @@ Use this checklist to verify that all migration steps have been applied correctl
 - [ ] The upload block is guarded: it only runs when `s3_client` is not `NULL` and `s3_bucket != ""`
 
 ### S3 upload before running (via EDITO Personal Storage UI)
-- [ ] All files from the local `scripts/` folder (including `PARAMS`) are uploaded to the `scripts/` prefix in the bucket
+- [ ] Script files from the local `scripts/` folder are uploaded to the `scripts/` prefix in the bucket
+- [ ] `input/parameters.txt` is uploaded to the `input/` prefix in the bucket
 - [ ] All required input files are uploaded to the `input/` prefix in the bucket
 - [ ] Uploaded files are confirmed visible in the EDITO Personal Storage browser
 
 ### EDITO deployment (via `add-your-process`)
 - [ ] Project is committed to a remote Git repository (public or private)
-- [ ] `Dockerfile` and `entrypoint.sh` are present in the repository (do **not** commit `PARAMS` or input data)
+- [ ] `Dockerfile` and `entrypoint.sh` are present in the repository (do **not** commit `parameters.txt` or input data)
 - [ ] `add-your-process` tool is opened from the Contribution tab of the EDITO Datalab
 - [ ] Configuration (2): **Deploy from a Dockerfile** selected; Dockerfile path is correct relative to repository root
 - [ ] Metadata (3): process name (lowercase), version, and description are filled in

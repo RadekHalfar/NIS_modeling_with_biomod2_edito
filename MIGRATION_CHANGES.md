@@ -4,9 +4,11 @@ Changes applied to R scripts in `scripts/modelling/` to make them compatible wit
 
 ---
 
-## scripts/PARAMS  *(new file)*
+## input/parameters.txt  *(runtime source of truth)*
 
-Created a shared parameter file for all 4 modelling scripts. Read by each script at startup; unused keys are silently ignored.
+The shared parameters file for all 4 modelling scripts is now sourced from `input/parameters.txt` in S3 and downloaded by `entrypoint.sh` at container startup to `/app/input/parameters.txt`.
+
+Scripts read this file through `Sys.getenv("PARAMS", "/app/input/parameters.txt")`. Unused keys are silently ignored.
 
 **Contents:**
 
@@ -29,7 +31,7 @@ Created a shared parameter file for all 4 modelling scripts. Read by each script
 
 **Parameter loading**
 - Removed all 12 `commandArgs()` positional argument reads.
-- Added `load_params()` function that reads `scripts/PARAMS` (path overridable via `PARAMS` env var).
+- Added `load_params()` function that reads `/app/input/parameters.txt` (path overridable via `PARAMS` env var).
 - `modeling_date` defaults to `format(Sys.Date(), "%Y-%m-%d")` when not set in PARAMS.
 
 **Fixed paths**
@@ -53,7 +55,7 @@ Created a shared parameter file for all 4 modelling scripts. Read by each script
 **Parameter loading**
 - Removed `commandArgs()` reads for `species` and `modeling_id`.
 - Removed `Sys.getenv("SLURM_CPUS_PER_TASK")` for core count — replaced with `n_cores` from PARAMS.
-- Added `load_params()` (same as script 01).
+- Added `load_params()` (same as script 01, default path `/app/input/parameters.txt`).
 
 **Fixed paths**
 - `outdir`, `input_dir`, `scripts_dir` set to fixed container paths.
@@ -72,7 +74,7 @@ Created a shared parameter file for all 4 modelling scripts. Read by each script
 
 **Parameter loading**
 - Removed `commandArgs()` reads for `species`, `modeling_id`, `n_cores`.
-- Added `load_params()` (same as script 01).
+- Added `load_params()` (same as script 01, default path `/app/input/parameters.txt`).
 - Added `proj_env_file` and `proj_env_file_s3_key` parameters (separate from script 01's `env_file` — projection uses `myExpl_shelf.tif`, not `myExpl_shelf_DISTFIX.tif`).
 
 **Fixed paths**
@@ -95,9 +97,17 @@ Created a shared parameter file for all 4 modelling scripts. Read by each script
 
 **Parameter loading**
 - Removed `commandArgs()` reads for `species`, `modeling_id`, `n_cores`.
-- Added `load_params()`.
+- Added `load_params()` (default path `/app/input/parameters.txt`).
 - Added `proj_env_file`/`proj_env_file_s3_key` (current climate raster).
 - Added per-scenario parameters: `ssp126_env_file`, `ssp126_env_file_s3_key`, `ssp245_env_file`, `ssp245_env_file_s3_key`, `ssp585_env_file`, `ssp585_env_file_s3_key`.
+
+---
+
+## Entrypoint behavior update
+
+- `entrypoint.sh` now downloads `s3://{S3_BUCKET}/{S3_INPUT_PREFIX}/parameters.txt` at startup.
+- Download target is `${PARAMS}` with default `/app/input/parameters.txt`.
+- There is no R-level fallback for fetching params; missing params fail fast in entrypoint.
 
 **Fixed paths**
 - Same as script 03 (`outdir`, `input_dir`, `scripts_dir`, `tmp_dir`, `setwd(outdir)`).

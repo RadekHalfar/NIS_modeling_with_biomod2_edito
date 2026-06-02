@@ -1,18 +1,19 @@
-﻿# Docker Setup: S3 Script Download Workflow
+# Docker Setup: Baked Scripts + S3 Input Parameters
 
-R scripts are **not** baked into the image and are **not** mounted as volumes.
-At container startup the entrypoint syncs the entire `S3_SCRIPTS_PREFIX` folder from S3 — including scripts, helper files, and the parameters file — then executes `SCRIPT_NAME`. All run parameters come from the parameters file, not from command-line arguments.
+R scripts are baked into the image under `/app/scripts`.
+At container startup, the entrypoint downloads `parameters.txt` from S3 input prefix and writes it to `${PARAMS}` (default: `/app/input/parameters.txt`).
+
+Parameters are not baked into the image.
 
 ## Directory Structure
 
 ```
 .
 ├── Dockerfile              (build configuration)
-├── entrypoint.sh           (syncs scripts folder from S3, then runs the R script)
-├── scripts/                (local copies — upload contents to S3 before running)
-│   ├── modelling/
-│   │   └── 01_modeling_mixedPA.R
-│   └── parameters.txt      (runtime parameters — must be inside S3_SCRIPTS_PREFIX)
+├── entrypoint.sh           (downloads params from S3 input, then runs baked script)
+├── scripts/                (baked into image; do not upload to S3 for runtime)
+│   └── modelling/
+│       └── 01_modeling_mixedPA.R
 ├── input/                  (local sample data)
 └── output/                 (results)
 ```
@@ -36,43 +37,34 @@ docker build -t biomod2-modeling:latest .
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIPT_NAME` | `01_modeling_mixedPA.R` | R script filename to run |
-| `S3_SCRIPTS_PREFIX` | `scripts` | S3 key prefix synced entirely to `/app/scripts/` |
-| `S3_INPUT_PREFIX` | `input` | S3 key prefix for input data (read by the R script) |
-| `S3_OUTPUT_PREFIX` | `output` | S3 key prefix for output upload (read by the R script) |
-| `PARAMS` | `parameters.txt` | Parameters filename inside the scripts folder |
+| `SCRIPT_NAME` | `modelling/01_modeling_mixedPA.R` | Script path relative to `/app/scripts` |
+| `S3_INPUT_PREFIX` | `input` | S3 key prefix used for params and input data |
+| `S3_OUTPUT_PREFIX` | `output` | S3 key prefix for output upload (read by R scripts) |
+| `PARAMS` | `/app/input/parameters.txt` | Full path for the downloaded parameters file |
 | `AWS_DEFAULT_REGION` | `waw3-1` | S3 region |
 | `AWS_SESSION_TOKEN` | *(none)* | Session token for temporary credentials |
 
-At startup the entrypoint syncs the entire prefix to `/app/scripts/`:
+At startup the entrypoint downloads:
+
 ```
-s3://<S3_BUCKET>/<S3_SCRIPTS_PREFIX>/  →  /app/scripts/
+s3://<S3_BUCKET>/<S3_INPUT_PREFIX>/parameters.txt  ->  <PARAMS>
 ```
-The parameters file is expected at `/app/scripts/<PARAMS>` (e.g. `/app/scripts/parameters.txt`).
 
 ## Upload Files to S3 Before Running
 
-Both the R script **and** the parameters file must be uploaded to S3 under `S3_SCRIPTS_PREFIX`:
+Only the parameters file must be present for startup:
 
 ```powershell
 $env:AWS_S3_ENDPOINT = "s3.waw3-1.cloudferro.com"
 $endpoint = "https://$env:AWS_S3_ENDPOINT"
 
-# Upload the R script
-aws s3 cp scripts\modelling\01_modeling_mixedPA.R `
-    s3://my-bucket/scripts/modelling/01_modeling_mixedPA.R `
-    --endpoint-url $endpoint
-
-# Upload the parameters file (must be inside S3_SCRIPTS_PREFIX)
+# Upload parameters file to input prefix
 aws s3 cp scripts\parameters.txt `
-    s3://my-bucket/scripts/modelling/parameters.txt `
-    --endpoint-url $endpoint
-
-# Or sync the entire modelling subfolder at once:
-aws s3 sync scripts\modelling\ `
-    s3://my-bucket/scripts/modelling/ `
+    s3://my-bucket/input/parameters.txt `
     --endpoint-url $endpoint
 ```
+
+Input rasters/CSVs should also be uploaded under `S3_INPUT_PREFIX` as needed by your script.
 
 ## Run the Container
 
@@ -85,33 +77,31 @@ docker run --rm `
   -e AWS_S3_ENDPOINT="s3.waw3-1.cloudferro.com" `
   -e AWS_DEFAULT_REGION="waw3-1" `
   -e S3_BUCKET="my-bucket" `
-  -e S3_SCRIPTS_PREFIX="scripts/modelling" `
-  -e SCRIPT_NAME="01_modeling_mixedPA.R" `
-  -e PARAMS="parameters.txt" `
+  -e S3_INPUT_PREFIX="input" `
+  -e SCRIPT_NAME="modelling/01_modeling_mixedPA.R" `
+  -e PARAMS="/app/input/parameters.txt" `
   -v "${PWD}\output:/app/output" `
   biomod2-modeling:latest
 ```
 
-All run parameters (species, algorithms, cross-validation settings, etc.) are read from `parameters.txt` synced from S3. Edit it in S3 to change the run — no container rebuild needed.
+All run parameters are read from `/app/input/parameters.txt`, downloaded by entrypoint from S3.
 
 ### Run a Different Script
 
-Change `SCRIPT_NAME` — no rebuild needed:
-
 ```powershell
 docker run --rm `
   -e AWS_ACCESS_KEY_ID="your-key" `
   -e AWS_SECRET_ACCESS_KEY="your-secret" `
   -e AWS_S3_ENDPOINT="s3.waw3-1.cloudferro.com" `
   -e S3_BUCKET="my-bucket" `
-  -e S3_SCRIPTS_PREFIX="scripts/modelling" `
-  -e SCRIPT_NAME="02_ensemble.R" `
-  -e PARAMS="parameters.txt" `
+  -e S3_INPUT_PREFIX="input" `
+  -e SCRIPT_NAME="modelling/02_ensemble.R" `
+  -e PARAMS="/app/input/parameters.txt" `
   -v "${PWD}\output:/app/output" `
   biomod2-modeling:latest
 ```
 
-### Use a Different S3 Scripts Prefix
+### Use a Different Input Prefix
 
 ```powershell
 docker run --rm `
@@ -119,16 +109,16 @@ docker run --rm `
   -e AWS_SECRET_ACCESS_KEY="your-secret" `
   -e AWS_S3_ENDPOINT="s3.waw3-1.cloudferro.com" `
   -e S3_BUCKET="my-bucket" `
-  -e S3_SCRIPTS_PREFIX="bioflow/scripts" `
-  -e SCRIPT_NAME="01_modeling_mixedPA.R" `
-  -e PARAMS="parameters.txt" `
+  -e S3_INPUT_PREFIX="bioflow/input" `
+  -e SCRIPT_NAME="modelling/01_modeling_mixedPA.R" `
+  -e PARAMS="/app/input/parameters.txt" `
   -v "${PWD}\output:/app/output" `
   biomod2-modeling:latest
 ```
 
 ## Parameters File (`parameters.txt`)
 
-A plain-text `key=value` file stored alongside the scripts in S3. Downloaded automatically at container startup. Example:
+A plain-text `key=value` file stored in S3 input prefix and downloaded at startup. Example:
 
 ```
 # Required
@@ -149,12 +139,8 @@ env_file=/app/input/myExpl_shelf_DISTFIX.tif
 env_file_s3_key=myExpl_shelf_DISTFIX.tif
 ```
 
-- Internal paths (`/app/output`, `/app/scripts`, `/app/input`) are fixed inside the container.
-- Input data is fetched from S3 by the R script itself using the same AWS credentials.
-
 ## Key Benefits
 
-- **No volume mounts for scripts** — scripts and parameters live in S3
-- **No Docker rebuilds** — edit `parameters.txt` in S3 or change `SCRIPT_NAME` to modify a run
-- **Single credentials set** — the same AWS env vars serve both the entrypoint sync and the R script's S3 operations
-- **Consistent workflow** — scripts, parameters, input, and output all flow through S3
+- No baked parameters: update `parameters.txt` in S3 without rebuilding image.
+- Fail-fast startup: container stops before running R if params download fails.
+- Deterministic path: all scripts read the same local file path (`/app/input/parameters.txt`).
