@@ -28,20 +28,28 @@ load_params <- function() {
   get_num <- function(key, default = NULL) {
     v <- raw[[key]]; if (is.null(v) || v == "" || v == "NULL") return(default); as.numeric(v)
   }
+  get_vec <- function(key) {
+    v <- raw[[key]]
+    if (is.null(v) || v == "") stop(sprintf("Required parameter '%s' is missing or empty.", key))
+    vals <- trimws(strsplit(v, ",")[[1]])
+    vals <- vals[nchar(vals) > 0]
+    if (length(vals) == 0) stop(sprintf("Required parameter '%s' is empty after parsing.", key))
+    vals
+  }
   require_str <- function(key) {
     v <- raw[[key]]
     if (is.null(v) || v == "" || v == "NULL") stop(sprintf("Required parameter '%s' is missing.", key))
     v
   }
   list(
-    myRespName  = require_str("species"),
+    species_list = get_vec("species"),
     modeling_id = require_str("modeling_id"),
     n_cores     = get_num("n_cores", default = 1)
   )
 }
 
 p <- load_params()
-myRespName  <- p$myRespName
+species_list <- unique(p$species_list)
 modeling_id <- p$modeling_id
 n_cores     <- p$n_cores
 
@@ -142,40 +150,77 @@ upload_dir_to_s3 <- function(s3, bucket, local_dir, s3_prefix) {
 # ========== Set working directory (biomod2 writes relative to cwd) ==========
 setwd(outdir)
 
-# ========== Load Biomod Object ==========
-model_dir  <- myRespName
-model_file <- file.path(model_dir, paste(myRespName, modeling_id, "models.out", sep = "."))
-if (!file.exists(model_file)) {
-  s3_model_prefix <- paste0(gsub("/+$", "", s3_output_prefix), "/", myRespName, "/")
-  cat(">>> Model not found locally; attempting S3 download from", s3_model_prefix, "\n")
-  download_s3_prefix(s3_client, s3_bucket, s3_model_prefix, file.path(outdir, myRespName))
+cat(">>> Species (", length(species_list), "):", paste(species_list, collapse = ", "), "\n")
+
+# ========== Ensemble Modeling (per species) ==========
+succeeded_species <- character(0)
+failed_species <- character(0)
+failed_reasons <- character(0)
+
+for (myRespName in species_list) {
+  cat("\n>>> Processing species:", myRespName, "\n")
+
+  species_ok <- tryCatch({
+    model_dir  <- myRespName
+    model_file <- file.path(model_dir, paste(myRespName, modeling_id, "models.out", sep = "."))
+    if (!file.exists(model_file)) {
+      s3_model_prefix <- paste0(gsub("/+$", "", s3_output_prefix), "/", myRespName, "/")
+      cat(">>> Model not found locally; attempting S3 download from", s3_model_prefix, "\n")
+      download_s3_prefix(s3_client, s3_bucket, s3_model_prefix, file.path(outdir, myRespName))
+    }
+    if (!file.exists(model_file)) stop("Model file not found: ", model_file)
+
+    loaded_name      <- load(model_file)
+    myBiomodModelOut <- get(loaded_name)
+
+    myBiomodEM <- BIOMOD_EnsembleModeling(
+      bm.mod        = myBiomodModelOut,
+      models.chosen = "all",
+      em.by         = "all",
+      em.algo       = c("EMwmean", "EMcv", "EMca"),
+      EMwmean.decay = "proportional",
+      metric.select = c("TSS", "ROC"),
+      metric.select.thresh = c(0.6, 0.85),
+      metric.eval   = c("TSS", "ROC"),
+      var.import    = 0,
+      nb.cpu        = n_cores
+    )
+
+    em_eval <- as.data.frame(get_evaluations(myBiomodEM))
+    write.csv(em_eval,
+              file = file.path(outdir, paste0("full_eval_EM_", myRespName, "_", modeling_id, ".csv")),
+              row.names = FALSE)
+
+    cat(">>> Done with ensemble for", myRespName, "\n")
+    TRUE
+  }, error = function(e) {
+    msg <- conditionMessage(e)
+    cat(">>> Species failed:", myRespName, "-", msg, "\n")
+    failed_species <<- c(failed_species, myRespName)
+    failed_reasons <<- c(failed_reasons, msg)
+    FALSE
+  })
+
+  if (isTRUE(species_ok)) {
+    succeeded_species <- c(succeeded_species, myRespName)
+  }
+
+  gc()
 }
-if (!file.exists(model_file)) stop("Model file not found: ", model_file)
 
-loaded_name      <- load(model_file)
-myBiomodModelOut <- get(loaded_name)
-
-# ========== Ensemble Modeling ==========
-myBiomodEM <- BIOMOD_EnsembleModeling(
-  bm.mod        = myBiomodModelOut,
-  models.chosen = "all",
-  em.by         = "all",
-  em.algo       = c("EMwmean", "EMcv", "EMca"),
-  EMwmean.decay = "proportional",
-  metric.select = c("TSS","ROC"),
-  metric.select.thresh = c(0.6, 0.85),   # minimum TSS and ROC-AUC to include individual models in ensemble
-  metric.eval   = c("TSS","ROC"),
-  var.import    = 0,  # can be activated if needed, here it isn't to reduce computation needed
-  nb.cpu        = n_cores
-)
-
-# ========== Save ensemble evaluation ==========
-em_eval <- as.data.frame(get_evaluations(myBiomodEM))
-write.csv(em_eval,
-          file = file.path(outdir, paste0("full_eval_EM_", myRespName, "_", modeling_id, ".csv")),
-          row.names = FALSE)
-
-cat(">>> Done with ensemble for", myRespName, "\n")
+cat("\n>>> Species summary: succeeded=", length(succeeded_species),
+    " failed=", length(failed_species), "\n", sep = "")
+if (length(succeeded_species) > 0) {
+  cat(">>> Succeeded:", paste(succeeded_species, collapse = ", "), "\n")
+}
+if (length(failed_species) > 0) {
+  for (i in seq_along(failed_species)) {
+    cat(">>> Failed:", failed_species[[i]], "-", failed_reasons[[i]], "\n")
+  }
+}
+if (length(succeeded_species) == 0) {
+  stop("No species completed successfully.")
+}
 
 # ========== Upload outputs to S3 ==========
 if (!is.null(s3_client) && s3_bucket != "") {

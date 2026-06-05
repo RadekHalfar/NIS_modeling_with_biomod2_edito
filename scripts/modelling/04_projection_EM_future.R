@@ -27,6 +27,14 @@ load_params <- function() {
   get_num <- function(key, default = NULL) {
     v <- raw[[key]]; if (is.null(v) || v == "" || v == "NULL") return(default); as.numeric(v)
   }
+  get_vec <- function(key) {
+    v <- raw[[key]]
+    if (is.null(v) || v == "") stop(sprintf("Required parameter '%s' is missing or empty.", key))
+    vals <- trimws(strsplit(v, ",")[[1]])
+    vals <- vals[nchar(vals) > 0]
+    if (length(vals) == 0) stop(sprintf("Required parameter '%s' is empty after parsing.", key))
+    vals
+  }
   get_str <- function(key, default = NULL) {
     v <- raw[[key]]; if (is.null(v) || v == "" || v == "NULL") return(default); v
   }
@@ -36,7 +44,7 @@ load_params <- function() {
     v
   }
   list(
-    myRespName            = require_str("species"),
+    species_list          = get_vec("species"),
     modeling_id           = require_str("modeling_id"),
     n_cores               = get_num("n_cores", default = 1),
     proj_env_file         = get_str("proj_env_file",          default = "/app/input/myExpl_shelf.tif"),
@@ -51,7 +59,7 @@ load_params <- function() {
 }
 
 p <- load_params()
-myRespName             <- p$myRespName
+species_list           <- unique(p$species_list)
 modeling_id            <- p$modeling_id
 n_cores                <- p$n_cores
 proj_env_file          <- p$proj_env_file
@@ -166,29 +174,12 @@ upload_dir_to_s3 <- function(s3, bucket, local_dir, s3_prefix) {
 # ========== Set working directory (biomod2 writes relative to cwd) ==========
 setwd(outdir)
 
+cat(">>> Species (", length(species_list), "):", paste(species_list, collapse = ", "), "\n")
+
 # ========== Memory-Safe Settings ==========
 tmp_dir <- file.path(outdir, "tmp")
 dir.create(tmp_dir, showWarnings = FALSE)
 terraOptions(memfrac = 0.5, tempdir = tmp_dir)
-
-# ========== Load Ensemble Model ==========
-model_dir  <- myRespName
-model_file <- file.path(model_dir, paste(myRespName, modeling_id, "ensemble.models.out", sep = "."))
-if (!file.exists(model_file)) {
-  s3_model_prefix <- paste0(gsub("/+$", "", s3_output_prefix), "/", myRespName, "/")
-  cat(">>> Model not found locally; attempting S3 download from", s3_model_prefix, "\n")
-  download_s3_prefix(s3_client, s3_bucket, s3_model_prefix, file.path(outdir, myRespName))
-}
-if (!file.exists(model_file)) {
-  cat("! Ensemble models file not found: ", model_file, "\n", sep = "")
-  quit(status = 0)  # exit cleanly so SLURM array continues
-}
-
-loaded_name <- load(model_file)
-myBiomodEM  <- get(loaded_name, inherits = FALSE)
-if (!inherits(myBiomodEM, "BIOMOD.ensemble.models.out")) {
-  stop("Loaded object is not a BIOMOD.ensemble.models.out: ", loaded_name)
-}
 
 # ========== Load Reference Environmental Layers ==========
 if (!file.exists(proj_env_file)) {
@@ -211,68 +202,121 @@ scenario_env_files <- list(
   ssp585 = list(file = ssp585_env_file, s3_key = ssp585_env_file_s3_key)
 )
 
-# ========== Which ensemble types to use ==========
-avail   <- biomod2::get_built_models(myBiomodEM)
-keep_em <- avail[grepl("(_EMwmeanByTSS|_EMcvByTSS|_EMcaByTSS)(_|$)", avail)]
-if (length(keep_em) == 0) {
-  cat("! No EMwmeanByTSS/EMcvByTSS/EMcaByTSS types found — skipping species.\n")
-  quit(status = 0)
-}
-cat("▶ Ensemble types to forecast:\n")
-print(keep_em)
+# ========== Run Future Projections (per species) ==========
+scenarios <- c("ssp126", "ssp245", "ssp585")
+succeeded_species <- character(0)
+failed_species <- character(0)
+failed_reasons <- character(0)
 
-# ========== Run Future Projections ==========
-scenarios <- c("ssp126", "ssp245", "ssp585") # can also run one scenario at a time for less computation
+for (myRespName in species_list) {
+  cat("\n>>> Processing species:", myRespName, "\n")
 
-for (scenario in scenarios) {
-  proj_name       <- paste0(scenario, "EM_", myRespName, "_", modeling_id)
-  proj_future_dir <- file.path(model_dir, paste0("proj_", proj_name))
-
-  scenario_info   <- scenario_env_files[[scenario]]
-  env_path_future <- scenario_info$file
-  s3_key_future   <- scenario_info$s3_key
-
-  if (!file.exists(env_path_future)) {
-    env_keys_future <- unique(Filter(nzchar, c(
-      s3_key_future,
-      safe_s3_key(s3_input_prefix, basename(env_path_future)),
-      basename(env_path_future)
-    )))
-    for (key in env_keys_future) {
-      if (download_s3_object(s3_client, s3_bucket, key, env_path_future)) break
+  species_ok <- tryCatch({
+    model_dir  <- myRespName
+    model_file <- file.path(model_dir, paste(myRespName, modeling_id, "ensemble.models.out", sep = "."))
+    if (!file.exists(model_file)) {
+      s3_model_prefix <- paste0(gsub("/+$", "", s3_output_prefix), "/", myRespName, "/")
+      cat(">>> Model not found locally; attempting S3 download from", s3_model_prefix, "\n")
+      download_s3_prefix(s3_client, s3_bucket, s3_model_prefix, file.path(outdir, myRespName))
     }
-  }
-  if (!file.exists(env_path_future)) {
-    cat("! Missing env for ", scenario, ": ", env_path_future, " - skipping this scenario.\n", sep = "")
-    next
-  }
+    if (!file.exists(model_file)) stop(paste0("Ensemble models file not found: ", model_file))
 
-  myExpl_future <- rast(env_path_future)
+    loaded_name <- load(model_file)
+    myBiomodEM  <- get(loaded_name, inherits = FALSE)
+    if (!inherits(myBiomodEM, "BIOMOD.ensemble.models.out")) {
+      stop("Loaded object is not a BIOMOD.ensemble.models.out: ", loaded_name)
+    }
 
-  # strict check: band names must match current env
-  if (!identical(names(myExpl_future), names(myExpl))) {
-    stop("Layer names/order mismatch for ", scenario, ".\nCurrent: ",
-         paste(names(myExpl), collapse = ", "),
-         "\nFuture:  ", paste(names(myExpl_future), collapse = ", "))
-  }
+    avail   <- biomod2::get_built_models(myBiomodEM)
+    keep_em <- avail[grepl("(_EMwmeanByTSS|_EMcvByTSS|_EMcaByTSS)(_|$)", avail)]
+    if (length(keep_em) == 0) {
+      stop("No EMwmeanByTSS/EMcvByTSS/EMcaByTSS types found")
+    }
 
-  cat("\n Running Future Ensemble Forecasting: ", myRespName, " | ", scenario, " | cores=", n_cores, "\n", sep = "")
-  tryCatch({
-    myBiomodEMProj_Future <- BIOMOD_EnsembleForecasting(
-      bm.em         = myBiomodEM,
-      proj.name     = proj_name,
-      new.env       = myExpl_future,
-      models.chosen = keep_em,
-      nb.cpu        = n_cores,
-      do.stack      = FALSE
-    )
-    cat("✔ Done: ", scenario, "\n", sep = "")
+    cat("▶ Ensemble types to forecast:\n")
+    print(keep_em)
+
+    scenario_success <- 0
+    for (scenario in scenarios) {
+      proj_name <- paste0(scenario, "EM_", myRespName, "_", modeling_id)
+      scenario_info   <- scenario_env_files[[scenario]]
+      env_path_future <- scenario_info$file
+      s3_key_future   <- scenario_info$s3_key
+
+      if (!file.exists(env_path_future)) {
+        env_keys_future <- unique(Filter(nzchar, c(
+          s3_key_future,
+          safe_s3_key(s3_input_prefix, basename(env_path_future)),
+          basename(env_path_future)
+        )))
+        for (key in env_keys_future) {
+          if (download_s3_object(s3_client, s3_bucket, key, env_path_future)) break
+        }
+      }
+      if (!file.exists(env_path_future)) {
+        cat("! Missing env for ", scenario, ": ", env_path_future, " - skipping this scenario.\n", sep = "")
+        next
+      }
+
+      tryCatch({
+        myExpl_future <- rast(env_path_future)
+        if (!identical(names(myExpl_future), names(myExpl))) {
+          stop("Layer names/order mismatch for ", scenario, ". Current: ",
+               paste(names(myExpl), collapse = ", "),
+               " | Future: ", paste(names(myExpl_future), collapse = ", "))
+        }
+
+        cat("\n Running Future Ensemble Forecasting: ", myRespName, " | ", scenario,
+            " | cores=", n_cores, "\n", sep = "")
+        BIOMOD_EnsembleForecasting(
+          bm.em         = myBiomodEM,
+          proj.name     = proj_name,
+          new.env       = myExpl_future,
+          models.chosen = keep_em,
+          nb.cpu        = n_cores,
+          do.stack      = FALSE
+        )
+        scenario_success <- scenario_success + 1
+        cat("✔ Done: ", scenario, "\n", sep = "")
+      }, error = function(e) {
+        cat("✖ Failed: ", scenario, " - ", conditionMessage(e), "\n", sep = "")
+      })
+    }
+
+    if (scenario_success == 0) {
+      stop("No future scenario projections completed successfully")
+    }
+
+    cat(">>> Done! Projections are in: ", normalizePath(model_dir, winslash = "/"), "\n", sep = "")
+    TRUE
   }, error = function(e) {
-    cat("✖ Failed: ", scenario, " — ", conditionMessage(e), "\n", sep = "")
+    msg <- conditionMessage(e)
+    cat(">>> Species failed:", myRespName, "-", msg, "\n")
+    failed_species <<- c(failed_species, myRespName)
+    failed_reasons <<- c(failed_reasons, msg)
+    FALSE
   })
+
+  if (isTRUE(species_ok)) {
+    succeeded_species <- c(succeeded_species, myRespName)
+  }
+
+  gc()
 }
 
-cat(">>> Done! Projections are in: ", normalizePath(model_dir, winslash = "/"), "\n", sep = "")
+cat("\n>>> Species summary: succeeded=", length(succeeded_species),
+    " failed=", length(failed_species), "\n", sep = "")
+if (length(succeeded_species) > 0) {
+  cat(">>> Succeeded:", paste(succeeded_species, collapse = ", "), "\n")
+}
+if (length(failed_species) > 0) {
+  for (i in seq_along(failed_species)) {
+    cat(">>> Failed:", failed_species[[i]], "-", failed_reasons[[i]], "\n")
+  }
+}
+if (length(succeeded_species) == 0) {
+  stop("No species completed successfully.")
+}
 
 # ========== Upload outputs to S3 ==========
 if (!is.null(s3_client) && s3_bucket != "") {

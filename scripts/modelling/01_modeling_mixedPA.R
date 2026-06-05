@@ -49,7 +49,10 @@ load_params <- function() {
   get_vec <- function(key) {
     v <- raw[[key]]
     if (is.null(v) || v == "") stop(sprintf("Required parameter '%s' is missing or empty.", key))
-    trimws(strsplit(v, ",")[[1]])
+    vals <- trimws(strsplit(v, ",")[[1]])
+    vals <- vals[nchar(vals) > 0]
+    if (length(vals) == 0) stop(sprintf("Required parameter '%s' is empty after parsing.", key))
+    vals
   }
   require_str <- function(key) {
     v <- get_str(key)
@@ -58,7 +61,7 @@ load_params <- function() {
   }
 
   list(
-    myRespName      = require_str("species"),
+    species_list    = get_vec("species"),
     algorithms      = get_vec("algorithms"),
     pa_dist_min     = get_num("pa_dist_min"),
     pa_dist_max     = get_num("pa_dist_max"),
@@ -74,7 +77,7 @@ load_params <- function() {
 }
 
 p <- load_params()
-myRespName      <- p$myRespName
+species_list    <- unique(p$species_list)
 algorithms      <- p$algorithms
 pa_dist_min     <- p$pa_dist_min
 pa_dist_max     <- p$pa_dist_max
@@ -96,7 +99,7 @@ dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 if (!dir.exists(scripts_dir)) stop(sprintf("scripts_dir not found: %s", scripts_dir))
 if (!dir.exists(input_dir))   stop(sprintf("input_dir not found: %s",   input_dir))
 
-cat(">>> Species:", myRespName, "\n")
+cat(">>> Species (", length(species_list), "):", paste(species_list, collapse = ", "), "\n")
 cat(">>> Algorithms:", paste(algorithms, collapse = ", "), "\n")
 cat(">>> Env file:", env_file, "\n")
 cat(">>> Output dir:", outdir, "\n")
@@ -203,27 +206,6 @@ upload_dir_to_s3 <- function(s3, bucket, local_dir, s3_prefix) {
   }
 }
 
-# ========== Load Occurrences ==========
-occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
-occ_path     <- file.path(input_dir, occ_filename)
-
-if (!file.exists(occ_path)) {
-  s3_keys <- unique(c(
-    safe_s3_key(s3_input_prefix, occ_filename),
-    occ_filename
-  ))
-  for (key in s3_keys) {
-    if (download_s3_object(s3_client, s3_bucket, key, occ_path)) break
-  }
-}
-if (!file.exists(occ_path)) stop(paste("Occurrence file not found locally or in S3:", occ_path))
-cat(">>> Using occurrence file:", occ_path, "\n")
-
-occ_data <- read.csv(occ_path)
-myResp   <- as.numeric(occ_data$occurrenceStatus) # 1 / 0
-myRespXY <- occ_data[, c("longitude", "latitude")]
-colnames(myRespXY) <- c("X_WGS84","Y_WGS84")
-
 # ========== Load Environmental Data ==========
 if (!file.exists(env_file)) {
   env_keys <- unique(Filter(nzchar, c(
@@ -239,46 +221,15 @@ if (!file.exists(env_file)) stop(paste("Environmental raster not found locally o
 
 myExpl <- rast(env_file)
 
-
-# === Screen presences against the env stack (CRS + extent + NA) ===
-pv <- terra::vect(myRespXY, geom = c("X_WGS84","Y_WGS84"), crs = "EPSG:4326")
-
-# (A) Which raster cell does each presence hit? (use extract with cells=TRUE)
-ext_cells <- terra::extract(myExpl[[1]], pv, cells = TRUE)  # columns: ID, cell, <layer values>
-cells <- ext_cells$cell
-out_of_extent <- is.na(cells)
-
-# (B) Any NA in ANY predictor band at those locations?
-ext_vals <- terra::extract(myExpl, pv)                      # first column is ID
-na_any <- rowSums(is.na(ext_vals[, -1, drop = FALSE])) > 0
-
-keep_env <- !(out_of_extent | na_any)
-
-n_raw  <- sum(myResp == 1, na.rm = TRUE)
-myResp <- myResp[keep_env]
-myRespXY <- myRespXY[keep_env, , drop = FALSE]
-n_kept <- sum(myResp == 1, na.rm = TRUE)
-
-cat(sprintf(">>> Presences (raw): %d | outside extent: %d | NA in env: %d | kept: %d\n",
-            n_raw, sum(out_of_extent, na.rm = TRUE), sum(na_any, na.rm = TRUE), n_kept))
-
-if (n_kept < 10) stop(paste("Species", myRespName, "has fewer than 10 usable presences after screening."))
-
-# === Now compute PAs/rep based on the KEPT presences ===
-if (n_kept <= 100) {
-  PA.nb.absences <- min(n_kept * 3, 500)
-} else {
-  PA.nb.absences <- n_kept * 3
-}
-cat(">>> Using PAs/rep:", PA.nb.absences, "\n")
-
 # ========== Set working directory so biomod2 writes outputs to /app/output ==========
 setwd(outdir)
 
 # ========== Mixed PA builder (Version 1 style) ==========
 set.seed(123)
 
-build_bm_format_mix <- function(nb_rep = 3, mix_ratio = 1/2, dedup = TRUE, verbose = TRUE) {
+build_bm_format_mix <- function(myRespName, myResp, myRespXY, myExpl,
+                                pa_dist_min, pa_dist_max, PA.nb.absences,
+                                nb_rep = 3, mix_ratio = 1/2, dedup = TRUE, verbose = TRUE) {
   logf <- function(...) if (isTRUE(verbose)) cat(sprintf(...), "\n")
 
   # assumes you already defined: myRespName, myResp, myRespXY (cols X_WGS84,Y_WGS84), myExpl,
@@ -291,11 +242,8 @@ build_bm_format_mix <- function(nb_rep = 3, mix_ratio = 1/2, dedup = TRUE, verbo
        nb_rep, mix_ratio, PA.nb.absences, nb_abs_disk, nb_abs_random)
 
   # build vect with 'sp'
-  df_sp <- data.frame(
-    X_WGS84 = myRespXY$X_WGS84,
-    Y_WGS84 = myRespXY$Y_WGS84,
-    sp      = myResp
-  )
+  df_sp <- data.frame(myRespXY$X_WGS84, myRespXY$Y_WGS84, myResp)
+  names(df_sp) <- c("X_WGS84", "Y_WGS84", "sp")
   myResp_spat <- terra::vect(df_sp, geom = c("X_WGS84","Y_WGS84"), crs = "EPSG:4326")
 
   # generate PAs
@@ -382,10 +330,11 @@ build_bm_format_mix <- function(nb_rep = 3, mix_ratio = 1/2, dedup = TRUE, verbo
   logf(">> Combined PA rows (pre-dedup): %d", nrow(PA.table))
   if (dedup) {
     before <- nrow(PA.table)
-    PA.table <- PA.table |>
-      dplyr::group_by(X_WGS84, Y_WGS84) |>
-      dplyr::summarise(dplyr::across(all_of(std_pa_names), ~ any(.x, na.rm = TRUE)),
-                       .groups = "drop")
+    PA.table <- stats::aggregate(
+      PA.table[, std_pa_names, drop = FALSE],
+      by = PA.table[, c("X_WGS84", "Y_WGS84"), drop = FALSE],
+      FUN = function(x) any(x, na.rm = TRUE)
+    )
     after <- nrow(PA.table)
     logf(">> Dedup: %d -> %d unique PA coords", before, after)
   }
@@ -416,11 +365,6 @@ build_bm_format_mix <- function(nb_rep = 3, mix_ratio = 1/2, dedup = TRUE, verbo
   return(fmt)
 }
 
-myBiomodData.PA <- build_bm_format_mix()
-
-cat(">>> Pseudo-absence summary:\n")
-print(table(myBiomodData.PA@data.species))
-
 # ========== Cross-validation setup ==========
 cv_args <- list(
   CV.strategy  = cv_strategy,
@@ -438,24 +382,125 @@ if (cv_strategy %in% c("kfold", "block", "strat", "env")) cv_args$CV.k <- cv_k
 env_name   <- tools::file_path_sans_ext(basename(env_file))
 modeling_id <- paste(modeling_date, "mix50", cv_strategy, env_name, sep = "_") 
 
-# ========== Run Modeling ==========
-myBiomodModelOut <- do.call(BIOMOD_Modeling, c(
-  list(
-    bm.format   = myBiomodData.PA,
-    models      = algorithms,
-    modeling.id = modeling_id
-  ),
-  cv_args
-))
+# ========== Run Modeling (per species) ==========
+succeeded_species <- character(0)
+failed_species <- character(0)
+failed_reasons <- character(0)
 
+for (myRespName in species_list) {
+  cat("\n>>> Processing species:", myRespName, "\n")
 
-eval <- get_evaluations(myBiomodModelOut)
-eval_df <- as.data.frame(eval)
-write.csv(eval_df,
-          file = file.path(outdir, paste0("eval_", myRespName, "_", modeling_id, ".csv")),
-          row.names = FALSE)
+  species_ok <- tryCatch({
+    occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
+    occ_path     <- file.path(input_dir, occ_filename)
 
-cat(">>> Done for", myRespName, "\n")
+    if (!file.exists(occ_path)) {
+      s3_keys <- unique(c(
+        safe_s3_key(s3_input_prefix, occ_filename),
+        occ_filename
+      ))
+      for (key in s3_keys) {
+        if (download_s3_object(s3_client, s3_bucket, key, occ_path)) break
+      }
+    }
+    if (!file.exists(occ_path)) stop(paste("Occurrence file not found locally or in S3:", occ_path))
+    cat(">>> Using occurrence file:", occ_path, "\n")
+
+    occ_data <- read.csv(occ_path)
+    myResp   <- as.numeric(occ_data$occurrenceStatus) # 1 / 0
+    myRespXY <- occ_data[, c("longitude", "latitude")]
+    colnames(myRespXY) <- c("X_WGS84", "Y_WGS84")
+
+    # === Screen presences against the env stack (CRS + extent + NA) ===
+    pv <- terra::vect(myRespXY, geom = c("X_WGS84", "Y_WGS84"), crs = "EPSG:4326")
+
+    # (A) Which raster cell does each presence hit? (use extract with cells=TRUE)
+    ext_cells <- terra::extract(myExpl[[1]], pv, cells = TRUE)  # columns: ID, cell, <layer values>
+    cells <- ext_cells$cell
+    out_of_extent <- is.na(cells)
+
+    # (B) Any NA in ANY predictor band at those locations?
+    ext_vals <- terra::extract(myExpl, pv)  # first column is ID
+    na_any <- rowSums(is.na(ext_vals[, -1, drop = FALSE])) > 0
+
+    keep_env <- !(out_of_extent | na_any)
+
+    n_raw  <- sum(myResp == 1, na.rm = TRUE)
+    myResp <- myResp[keep_env]
+    myRespXY <- myRespXY[keep_env, , drop = FALSE]
+    n_kept <- sum(myResp == 1, na.rm = TRUE)
+
+    cat(sprintf(">>> Presences (raw): %d | outside extent: %d | NA in env: %d | kept: %d\n",
+                n_raw, sum(out_of_extent, na.rm = TRUE), sum(na_any, na.rm = TRUE), n_kept))
+
+    if (n_kept < 10) stop(paste("Species", myRespName, "has fewer than 10 usable presences after screening."))
+
+    # === Now compute PAs/rep based on the KEPT presences ===
+    if (n_kept <= 100) {
+      PA.nb.absences <- min(n_kept * 3, 500)
+    } else {
+      PA.nb.absences <- n_kept * 3
+    }
+    cat(">>> Using PAs/rep:", PA.nb.absences, "\n")
+
+    myBiomodData.PA <- build_bm_format_mix(
+      myRespName = myRespName,
+      myResp = myResp,
+      myRespXY = myRespXY,
+      myExpl = myExpl,
+      pa_dist_min = pa_dist_min,
+      pa_dist_max = pa_dist_max,
+      PA.nb.absences = PA.nb.absences
+    )
+
+    cat(">>> Pseudo-absence summary:\n")
+    print(table(myBiomodData.PA@data.species))
+
+    myBiomodModelOut <- do.call(BIOMOD_Modeling, c(
+      list(
+        bm.format   = myBiomodData.PA,
+        models      = algorithms,
+        modeling.id = modeling_id
+      ),
+      cv_args
+    ))
+
+    eval <- get_evaluations(myBiomodModelOut)
+    eval_df <- as.data.frame(eval)
+    write.csv(eval_df,
+              file = file.path(outdir, paste0("eval_", myRespName, "_", modeling_id, ".csv")),
+              row.names = FALSE)
+
+    cat(">>> Done for", myRespName, "\n")
+    TRUE
+  }, error = function(e) {
+    msg <- conditionMessage(e)
+    cat(">>> Species failed:", myRespName, "-", msg, "\n")
+    failed_species <<- c(failed_species, myRespName)
+    failed_reasons <<- c(failed_reasons, msg)
+    FALSE
+  })
+
+  if (isTRUE(species_ok)) {
+    succeeded_species <- c(succeeded_species, myRespName)
+  }
+
+  gc()
+}
+
+cat("\n>>> Species summary: succeeded=", length(succeeded_species),
+    " failed=", length(failed_species), "\n", sep = "")
+if (length(succeeded_species) > 0) {
+  cat(">>> Succeeded:", paste(succeeded_species, collapse = ", "), "\n")
+}
+if (length(failed_species) > 0) {
+  for (i in seq_along(failed_species)) {
+    cat(">>> Failed:", failed_species[[i]], "-", failed_reasons[[i]], "\n")
+  }
+}
+if (length(succeeded_species) == 0) {
+  stop("No species completed successfully.")
+}
 
 # ========== Upload outputs to S3 ==========
 if (!is.null(s3_client) && s3_bucket != "") {
