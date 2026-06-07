@@ -48,4 +48,5 @@ ENV TZ=UTC \
     S3_INPUT_PREFIX=input \
     S3_OUTPUT_PREFIX=output
 
+#ENTRYPOINT ["/usr/local/bin/entrypoint-baked-scripts.sh"]
 ENTRYPOINT ["/usr/local/bin/entrypoint-baked-scripts.sh"]
