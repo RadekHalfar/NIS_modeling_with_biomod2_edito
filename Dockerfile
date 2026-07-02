@@ -37,8 +37,9 @@ COPY scripts/ /app/scripts/
 # Parameters must come from S3 input at startup, not from baked scripts.
 RUN rm -f /app/scripts/parameters.txt /app/scripts/PARAMS
 
-COPY entrypoint.sh /usr/local/bin/entrypoint-baked-scripts.sh
-RUN chmod +x /usr/local/bin/entrypoint-baked-scripts.sh
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY entrypoint_baked_scripts.sh /usr/local/bin/entrypoint-baked-scripts.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/entrypoint-baked-scripts.sh
 
 # SCRIPT_NAME can be either a path relative to /app/scripts or an absolute path.
 ENV TZ=UTC \

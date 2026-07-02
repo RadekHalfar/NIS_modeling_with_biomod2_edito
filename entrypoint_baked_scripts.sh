@@ -24,25 +24,25 @@ else
     export PARAMS="${INPUT_LOCAL_DIR}/${PARAMS_VALUE}"
 fi
 
-#if [[ -z "${S3_BUCKET:-}" ]]; then
-#    echo "Error: S3_BUCKET is not set."
-#    exit 1
-#fi
+if [[ -z "${S3_BUCKET:-}" ]]; then
+    echo "Error: S3_BUCKET is not set."
+    exit 1
+fi
 
-#if [[ -z "${AWS_S3_ENDPOINT:-}" ]]; then
-#    echo "Error: AWS_S3_ENDPOINT is not set."
-#    exit 1
-#fi
+if [[ -z "${AWS_S3_ENDPOINT:-}" ]]; then
+    echo "Error: AWS_S3_ENDPOINT is not set."
+    exit 1
+fi
 
-#if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] || [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-#    echo "Error: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must both be set."
-#    exit 1
-#fi
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] || [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    echo "Error: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must both be set."
+    exit 1
+fi
 
-#ENDPOINT_URL="${AWS_S3_ENDPOINT}"
-#if [[ "${ENDPOINT_URL}" != http* ]]; then
-#    ENDPOINT_URL="https://${ENDPOINT_URL}"
-#fi
+ENDPOINT_URL="${AWS_S3_ENDPOINT}"
+if [[ "${ENDPOINT_URL}" != http* ]]; then
+    ENDPOINT_URL="https://${ENDPOINT_URL}"
+fi
 
 S3_INPUT_PREFIX_TRIMMED="$(echo "${S3_INPUT_PREFIX:-input}" | sed 's|/*$||')"
 if [[ -n "${S3_INPUT_PREFIX_TRIMMED}" ]]; then

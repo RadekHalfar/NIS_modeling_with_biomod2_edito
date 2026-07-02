@@ -72,7 +72,8 @@ load_params <- function() {
     n_cores         = get_num("n_cores",    default = 1),
     env_file        = get_str("env_file",        default = "/app/input/myExpl_shelf_DISTFIX.tif"),
     env_file_s3_key = get_str("env_file_s3_key", default = ""),
-    modeling_date   = get_str("modeling_date",   default = format(Sys.Date(), "%Y-%m-%d"))
+    modeling_date   = get_str("modeling_date",   default = format(Sys.Date(), "%Y-%m-%d")),
+    occ_date_suffix = get_str("occ_date_suffix", default = "2025-08-19")
   )
 }
 
@@ -89,6 +90,7 @@ n_cores         <- p$n_cores
 env_file        <- p$env_file
 env_file_s3_key <- p$env_file_s3_key
 modeling_date   <- p$modeling_date
+occ_date_suffix <- p$occ_date_suffix
 
 # ========== Fixed Internal Paths ==========
 outdir      <- "/app/output"
@@ -99,6 +101,11 @@ dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 if (!dir.exists(scripts_dir)) stop(sprintf("scripts_dir not found: %s", scripts_dir))
 if (!dir.exists(input_dir))   stop(sprintf("input_dir not found: %s",   input_dir))
 
+# ========== Memory-Safe Settings ==========
+tmp_dir <- file.path(outdir, "tmp")
+dir.create(tmp_dir, showWarnings = FALSE)
+terraOptions(memfrac = 0.5, tempdir = tmp_dir)
+
 cat(">>> Species (", length(species_list), "):", paste(species_list, collapse = ", "), "\n")
 cat(">>> Algorithms:", paste(algorithms, collapse = ", "), "\n")
 cat(">>> Env file:", env_file, "\n")
@@ -106,21 +113,35 @@ cat(">>> Output dir:", outdir, "\n")
 
 # ========== S3 Client ==========
 build_s3_client <- function() {
-  endpoint_raw <- Sys.getenv("AWS_S3_ENDPOINT", "")
-  if (endpoint_raw == "") return(NULL)
+  endpoint_raw  <- Sys.getenv("AWS_S3_ENDPOINT", "")
+  access_key    <- Sys.getenv("AWS_ACCESS_KEY_ID",     "")
+  secret_key    <- Sys.getenv("AWS_SECRET_ACCESS_KEY", "")
+  session_token <- Sys.getenv("AWS_SESSION_TOKEN",     "")
+  region        <- Sys.getenv("AWS_DEFAULT_REGION",    "waw3-1")
+
+  all_empty <- endpoint_raw == "" && access_key == "" && secret_key == ""
+  if (all_empty) {
+    cat(">>> S3 not configured (AWS_S3_ENDPOINT/AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY unset); running in local-only mode.\n")
+    return(NULL)
+  }
+
+  missing <- c(
+    if (endpoint_raw == "") "AWS_S3_ENDPOINT",
+    if (access_key == "")   "AWS_ACCESS_KEY_ID",
+    if (secret_key == "")   "AWS_SECRET_ACCESS_KEY"
+  )
+  if (length(missing) > 0) {
+    stop(sprintf(
+      "S3 is partially configured but missing: %s. Set all of AWS_S3_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, or none of them for local-only mode.",
+      paste(missing, collapse = ", ")
+    ))
+  }
 
   endpoint <- if (grepl("^https?://", endpoint_raw)) {
     endpoint_raw
   } else {
     paste0("https://", endpoint_raw)
   }
-
-  access_key    <- Sys.getenv("AWS_ACCESS_KEY_ID",     "")
-  secret_key    <- Sys.getenv("AWS_SECRET_ACCESS_KEY", "")
-  session_token <- Sys.getenv("AWS_SESSION_TOKEN",     "")
-  region        <- Sys.getenv("AWS_DEFAULT_REGION",    "waw3-1")
-
-  if (access_key == "" || secret_key == "") return(NULL)
 
   creds <- list(access_key_id = access_key, secret_access_key = secret_key)
   if (session_token != "") creds$session_token <- session_token
@@ -391,7 +412,7 @@ for (myRespName in species_list) {
   cat("\n>>> Processing species:", myRespName, "\n")
 
   species_ok <- tryCatch({
-    occ_filename <- paste0(myRespName, "_merged_thinned_2025-08-19.csv")
+    occ_filename <- paste0(myRespName, "_merged_thinned_", occ_date_suffix, ".csv")
     occ_path     <- file.path(input_dir, occ_filename)
 
     if (!file.exists(occ_path)) {
