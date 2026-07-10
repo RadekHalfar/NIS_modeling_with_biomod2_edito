@@ -41,11 +41,14 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY entrypoint_baked_scripts.sh /usr/local/bin/entrypoint-baked-scripts.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/entrypoint-baked-scripts.sh
 
-# SCRIPT_NAME can be either a path relative to /app/scripts or an absolute path.
+# SCRIPT_NAME is a path relative to /app/scripts.
+# PARAMS is intentionally not set here: entrypoint.sh defaults it to
+# /app/scripts/PARAMS (synced down from S3 alongside the scripts), and an
+# ENV default here would shadow that at runtime.
 ENV TZ=UTC \
     AWS_DEFAULT_REGION=waw3-1 \
     SCRIPT_NAME=modelling/01_modeling_mixedPA.R \
-    PARAMS=/app/input/parameters.txt \
+    S3_SCRIPTS_PREFIX=scripts \
     S3_INPUT_PREFIX=input \
     S3_OUTPUT_PREFIX=output
 
