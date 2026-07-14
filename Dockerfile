@@ -26,8 +26,17 @@ RUN apt-get update && apt-get install -y \
     awscli \
     && rm -rf /var/lib/apt/lists/*
 
-RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel', 'paws'), repos='https://cloud.r-project.org/')"
-RUN R -e "install.packages('biomod2', repos='https://cloud.r-project.org/')"
+# install.packages() does not make R (or the RUN step) exit non-zero when a
+# package fails to install - it only prints a warning. Without an explicit
+# post-install check, a broken build would look successful here and only
+# fail later at runtime with "there is no package called X". So every
+# package actually used by scripts/modelling/*.R is verified with
+# requireNamespace() below, which does stop the build on failure.
+RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'tidyterra', 'biomod2'), repos='https://cloud.r-project.org/')"
+RUN R -e "\
+required <- c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'tidyterra', 'biomod2'); \
+missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]; \
+if (length(missing) > 0) stop('Failed to install required package(s): ', paste(missing, collapse = ', '))"
 
 # Keep runtime directories consistent with the current workflow.
 RUN mkdir -p /app/output /app/input /app/scripts
