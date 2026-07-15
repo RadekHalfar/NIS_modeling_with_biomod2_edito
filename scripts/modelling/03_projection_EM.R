@@ -1,8 +1,6 @@
 # ========== Load Libraries ==========
 library(terra)
 library(ggplot2)
-#install.packages("tidyterra", repos = "https://cloud.r-project.org/")
-library(tidyterra)
 library(biomod2)
 
 # ========== paws dependency check ==========

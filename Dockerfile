@@ -6,7 +6,7 @@ WORKDIR /app
 # terra's current CRAN release needs GDAL >= 3.8 (it calls the 3-arg
 # GDALMDArray::AsClassicDataset overload added in that version). Ubuntu
 # 22.04's stock repo only has GDAL 3.4.1, so libgdal-dev must come from
-# ubuntugis-unstable instead, or `terra` (and tidyterra/biomod2, which
+# ubuntugis-unstable instead, or `terra` (and biomod2, which
 # depend on it) fail to compile with:
 #   "error: no matching function for call to 'GDALMDArray::AsClassicDataset(...)'"
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,9 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # fail later at runtime with "there is no package called X". So every
 # package actually used by scripts/modelling/*.R is verified with
 # requireNamespace() below, which does stop the build on failure.
-RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'tidyterra', 'biomod2'), repos='https://cloud.r-project.org/')"
+RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'biomod2'), repos='https://cloud.r-project.org/')"
 RUN R -e "\
-required <- c('remotes', 'terra', 'dplyr', 'R.utils', 'dismo', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'tidyterra', 'biomod2'); \
+required <- c('remotes', 'terra', 'dplyr', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'biomod2'); \
 missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]; \
 if (length(missing) > 0) stop('Failed to install required package(s): ', paste(missing, collapse = ', '))"
 

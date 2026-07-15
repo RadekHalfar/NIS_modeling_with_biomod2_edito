@@ -15,7 +15,7 @@ and must be run after downloading all projection outputs from the cluster
 
 - [ ] R 4.4.1 with the following packages installed:
       `terra`, `dplyr`, `tools`, `ggplot2`, `tidyr`, `scales`, `readr`,
-      `tidyterra`, `patchwork`, `sf`
+      `patchwork`, `sf`
 - [ ] Projection outputs downloaded from the HPC cluster (Steps 3 and 4)
 - [ ] EMca projection outputs downloaded from the HPC cluster
 - [ ] EMcv projection outputs downloaded from the HPC cluster

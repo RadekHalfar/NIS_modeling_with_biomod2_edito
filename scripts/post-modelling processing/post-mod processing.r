@@ -32,7 +32,6 @@ library(ggplot2)
 library(tidyr)
 library(scales)
 library(readr)
-library(tidyterra)
 library(patchwork)
 library(sf)
 
