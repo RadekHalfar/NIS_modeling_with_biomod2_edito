@@ -3,7 +3,17 @@ FROM rocker/r-ver:4.3
 WORKDIR /app
 
 # System dependencies required by R packages used in the workflow.
-RUN apt-get update && apt-get install -y \
+# terra's current CRAN release needs GDAL >= 3.8 (it calls the 3-arg
+# GDALMDArray::AsClassicDataset overload added in that version). Ubuntu
+# 22.04's stock repo only has GDAL 3.4.1, so libgdal-dev must come from
+# ubuntugis-unstable instead, or `terra` (and tidyterra/biomod2, which
+# depend on it) fail to compile with:
+#   "error: no matching function for call to 'GDALMDArray::AsClassicDataset(...)'"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    gnupg \
+    && add-apt-repository -y ppa:ubuntugis/ubuntugis-unstable \
+    && apt-get update && apt-get install -y \
     ca-certificates \
     curl \
     libgdal-dev \
