@@ -42,9 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # fail later at runtime with "there is no package called X". So every
 # package actually used by scripts/modelling/*.R is verified with
 # requireNamespace() below, which does stop the build on failure.
-RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'biomod2'), repos='https://cloud.r-project.org/')"
+RUN R -e "install.packages(c('remotes', 'terra', 'dplyr', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'biomod2', 'R.utils'), repos='https://cloud.r-project.org/')"
 RUN R -e "\
-required <- c('remotes', 'terra', 'dplyr', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'biomod2'); \
+required <- c('remotes', 'terra', 'dplyr', 'maxnet', 'randomForest', 'doParallel', 'paws', 'ggplot2', 'biomod2', 'R.utils'); \
 missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]; \
 if (length(missing) > 0) stop('Failed to install required package(s): ', paste(missing, collapse = ', '))"
 
