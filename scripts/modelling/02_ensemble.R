@@ -179,9 +179,9 @@ for (myRespName in species_list) {
       em.by         = "all",
       em.algo       = c("EMwmean", "EMcv", "EMca"),
       EMwmean.decay = "proportional",
-      metric.select = c("TSS", "ROC"),
+      metric.select = c("TSS", "AUCroc"),
       metric.select.thresh = c(0.6, 0.85),
-      metric.eval   = c("TSS", "ROC"),
+      metric.eval   = c("TSS", "AUCroc"),
       var.import    = 0,
       nb.cpu        = n_cores
     )

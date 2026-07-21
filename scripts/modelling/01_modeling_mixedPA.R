@@ -393,7 +393,7 @@ cv_args <- list(
   CV.perc      = cv_perc,
   OPT.strategy = 'bigboss',
   var.import   = 0,
-  metric.eval  = c('TSS','ROC','POD',"POFD",'SR','BIAS'),
+  metric.eval  = c('TSS','AUCroc','POD',"POFD",'SR','BIAS'),
   nb.cpu       = n_cores,
   seed.val     = 123
 )
