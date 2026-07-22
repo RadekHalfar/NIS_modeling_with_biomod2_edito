@@ -4,6 +4,8 @@
 library(biomod2)
 library(terra)
 library(dplyr)
+library(R.utils)
+library(dismo)
 
 # ========== paws dependency check ==========
 if (!requireNamespace("paws", quietly = TRUE)) {
